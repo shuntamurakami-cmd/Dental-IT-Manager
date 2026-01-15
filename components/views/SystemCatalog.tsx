@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { ExternalLink, AlertCircle, Calendar, User, Server, Plus, X, Search } from 'lucide-react';
+import { ExternalLink, AlertCircle, Calendar, User, Server, Plus, X, Search, Pencil } from 'lucide-react';
 import { SystemTool } from '../../types';
 
 interface SystemCatalogProps {
   systems: SystemTool[];
   onAddSystem: (system: SystemTool) => void;
+  onUpdateSystem: (system: SystemTool) => void;
 }
 
 // Preset Data Catalog
@@ -28,8 +29,9 @@ const PRESET_SYSTEMS = [
   { name: 'Talknote', category: '社内SNS', baseMonthlyCost: 0, monthlyCostPerUser: 980, url: 'https://talknote.com' },
 ];
 
-const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem }) => {
+const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem, onUpdateSystem }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingSystem, setEditingSystem] = useState<SystemTool | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPreset, setSelectedPreset] = useState<typeof PRESET_SYSTEMS[0] | null>(null);
 
@@ -46,42 +48,70 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem }) =
     issues: []
   });
 
+  const openAddModal = () => {
+    setEditingSystem(null);
+    setSelectedPreset(null);
+    setFormData({
+      name: '',
+      category: '',
+      url: '',
+      baseMonthlyCost: 0,
+      monthlyCostPerUser: 0,
+      renewalDate: new Date().toISOString().split('T')[0],
+      adminOwner: '',
+      status: 'Active',
+      issues: []
+    });
+    setSearchQuery('');
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (system: SystemTool) => {
+    setEditingSystem(system);
+    setSelectedPreset(null); // Editing ignores presets UI usually, or allows overwrite
+    setFormData({ ...system });
+    setIsModalOpen(true);
+  };
+
   const handleSelectPreset = (preset: typeof PRESET_SYSTEMS[0]) => {
     setSelectedPreset(preset);
-    setFormData({
-      ...formData,
+    setFormData(prev => ({
+      ...prev,
       name: preset.name,
       category: preset.category,
       url: preset.url,
       baseMonthlyCost: preset.baseMonthlyCost,
       monthlyCostPerUser: preset.monthlyCostPerUser
-    });
+    }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name) return;
 
-    const newSystem: SystemTool = {
-      id: `s_${Date.now()}`,
-      name: formData.name,
-      category: formData.category || 'その他',
-      url: formData.url || '',
-      monthlyCostPerUser: formData.monthlyCostPerUser || 0,
-      baseMonthlyCost: formData.baseMonthlyCost || 0,
-      renewalDate: formData.renewalDate || new Date().toISOString().split('T')[0],
-      adminOwner: formData.adminOwner || '未設定',
-      vendorContact: '',
-      status: (formData.status as any) || 'Active',
-      issues: []
-    };
+    if (editingSystem) {
+      onUpdateSystem({
+        ...editingSystem,
+        ...formData as SystemTool
+      });
+    } else {
+      const newSystem: SystemTool = {
+        id: `s_${Date.now()}`,
+        name: formData.name,
+        category: formData.category || 'その他',
+        url: formData.url || '',
+        monthlyCostPerUser: formData.monthlyCostPerUser || 0,
+        baseMonthlyCost: formData.baseMonthlyCost || 0,
+        renewalDate: formData.renewalDate || new Date().toISOString().split('T')[0],
+        adminOwner: formData.adminOwner || '未設定',
+        vendorContact: '',
+        status: (formData.status as any) || 'Active',
+        issues: []
+      };
+      onAddSystem(newSystem);
+    }
 
-    onAddSystem(newSystem);
     setIsModalOpen(false);
-    // Reset
-    setSelectedPreset(null);
-    setFormData({ name: '', category: '', url: '', baseMonthlyCost: 0, monthlyCostPerUser: 0 });
-    setSearchQuery('');
   };
 
   const filteredPresets = PRESET_SYSTEMS.filter(p => 
@@ -97,7 +127,7 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem }) =
           <p className="text-slate-500">導入済みSaaS・ソフトウェアの一元管理</p>
         </div>
         <button 
-          onClick={() => setIsModalOpen(true)}
+          onClick={openAddModal}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center"
         >
           <Plus size={16} className="mr-1" />
@@ -111,7 +141,7 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem }) =
           <h3 className="mt-2 text-sm font-medium text-slate-900">システムが登録されていません</h3>
           <p className="mt-1 text-sm text-slate-500">利用しているSaaSやソフトウェアを登録しましょう。</p>
           <button 
-            onClick={() => setIsModalOpen(true)}
+            onClick={openAddModal}
             className="mt-4 text-blue-600 hover:text-blue-800 text-sm font-medium"
           >
             + 最初のシステムを登録
@@ -120,7 +150,7 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem }) =
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {systems.map((sys) => (
-            <div key={sys.id} className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col">
+            <div key={sys.id} className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col group">
               <div className="p-6 flex-1">
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex items-center space-x-3">
@@ -181,8 +211,12 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem }) =
                 >
                   ログイン <ExternalLink size={14} className="ml-1" />
                 </a>
-                <button className="text-sm text-slate-500 hover:text-slate-800">
-                  詳細編集
+                <button 
+                  onClick={() => openEditModal(sys)}
+                  className="text-sm text-slate-500 hover:text-slate-800 flex items-center"
+                >
+                  <Pencil size={14} className="mr-1" />
+                  編集
                 </button>
               </div>
             </div>
@@ -190,60 +224,64 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem }) =
         </div>
       )}
 
-      {/* Add System Modal */}
+      {/* Add/Edit System Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
+          <div className={`bg-white rounded-xl ${editingSystem ? 'max-w-md' : 'max-w-2xl'} w-full p-6 shadow-2xl overflow-y-auto max-h-[90vh]`}>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-slate-900">システム登録</h3>
+              <h3 className="text-lg font-bold text-slate-900">
+                {editingSystem ? 'システム情報を編集' : 'システム登録'}
+              </h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={20} />
               </button>
             </div>
             
-            <div className="flex flex-col md:flex-row gap-6">
-               {/* Left: Preset Selection */}
-               <div className="w-full md:w-1/3 border-r border-slate-100 pr-0 md:pr-6">
-                 <h4 className="text-sm font-bold text-slate-700 mb-2">製品カタログから選択</h4>
-                 <div className="relative mb-3">
-                   <Search className="absolute left-2 top-2 text-slate-400" size={14} />
-                   <input 
-                     type="text" 
-                     placeholder="製品名を検索" 
-                     className="w-full pl-8 pr-2 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-                     value={searchQuery}
-                     onChange={e => setSearchQuery(e.target.value)}
-                   />
-                 </div>
-                 <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                    {filteredPresets.map((preset, idx) => (
+            <div className={`flex flex-col ${editingSystem ? '' : 'md:flex-row gap-6'}`}>
+               {/* Left: Preset Selection (Only when adding) */}
+               {!editingSystem && (
+                 <div className="w-full md:w-1/3 border-r border-slate-100 pr-0 md:pr-6">
+                   <h4 className="text-sm font-bold text-slate-700 mb-2">製品カタログから選択</h4>
+                   <div className="relative mb-3">
+                     <Search className="absolute left-2 top-2 text-slate-400" size={14} />
+                     <input 
+                       type="text" 
+                       placeholder="製品名を検索" 
+                       className="w-full pl-8 pr-2 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                       value={searchQuery}
+                       onChange={e => setSearchQuery(e.target.value)}
+                     />
+                   </div>
+                   <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                      {filteredPresets.map((preset, idx) => (
+                        <div 
+                          key={idx}
+                          onClick={() => handleSelectPreset(preset)}
+                          className={`p-2 rounded-lg cursor-pointer text-sm transition-colors ${
+                            selectedPreset?.name === preset.name 
+                              ? 'bg-blue-50 border border-blue-200' 
+                              : 'hover:bg-slate-50 border border-transparent'
+                          }`}
+                        >
+                          <div className="font-bold text-slate-900">{preset.name}</div>
+                          <div className="text-xs text-slate-500">{preset.category}</div>
+                        </div>
+                      ))}
                       <div 
-                        key={idx}
-                        onClick={() => handleSelectPreset(preset)}
-                        className={`p-2 rounded-lg cursor-pointer text-sm transition-colors ${
-                          selectedPreset?.name === preset.name 
-                            ? 'bg-blue-50 border border-blue-200' 
-                            : 'hover:bg-slate-50 border border-transparent'
-                        }`}
+                        onClick={() => {
+                          setSelectedPreset(null);
+                          setFormData({name: '', category: '', baseMonthlyCost: 0, monthlyCostPerUser: 0});
+                        }}
+                        className={`p-2 rounded-lg cursor-pointer text-sm border border-dashed border-slate-300 text-center text-slate-500 hover:bg-slate-50 ${!selectedPreset ? 'bg-slate-50' : ''}`}
                       >
-                        <div className="font-bold text-slate-900">{preset.name}</div>
-                        <div className="text-xs text-slate-500">{preset.category}</div>
+                        カスタム入力（新規）
                       </div>
-                    ))}
-                    <div 
-                      onClick={() => {
-                        setSelectedPreset(null);
-                        setFormData({name: '', category: '', baseMonthlyCost: 0, monthlyCostPerUser: 0});
-                      }}
-                      className={`p-2 rounded-lg cursor-pointer text-sm border border-dashed border-slate-300 text-center text-slate-500 hover:bg-slate-50 ${!selectedPreset ? 'bg-slate-50' : ''}`}
-                    >
-                      カスタム入力（新規）
-                    </div>
+                   </div>
                  </div>
-               </div>
+               )}
 
                {/* Right: Input Form */}
-               <form onSubmit={handleSubmit} className="w-full md:w-2/3 space-y-4">
+               <form onSubmit={handleSubmit} className={`w-full ${editingSystem ? '' : 'md:w-2/3'} space-y-4`}>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">システム名 <span className="text-red-500">*</span></label>
                     <input 
@@ -263,34 +301,42 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem }) =
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">基本月額費用</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-2 text-slate-500">¥</span>
-                        <input 
-                          type="number" 
-                          min="0"
-                          value={formData.baseMonthlyCost}
-                          onChange={e => setFormData({...formData, baseMonthlyCost: parseInt(e.target.value)})}
-                          className="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
+                  
+                  {/* Cost Logic Section */}
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <p className="text-xs text-slate-500 mb-3">
+                      <strong>コスト設定について:</strong> 利用者数に関わらず発生する「固定費用」と、1名ごとの「従量費用」を設定できます。アカウント付与数に応じて自動計算されます。
+                    </p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">基本月額 (固定)</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-2 text-slate-500">¥</span>
+                          <input 
+                            type="number" 
+                            min="0"
+                            value={formData.baseMonthlyCost}
+                            onChange={e => setFormData({...formData, baseMonthlyCost: parseInt(e.target.value)})}
+                            className="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
                       </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">1名あたり月額</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-2 text-slate-500">¥</span>
-                        <input 
-                          type="number" 
-                          min="0"
-                          value={formData.monthlyCostPerUser}
-                          onChange={e => setFormData({...formData, monthlyCostPerUser: parseInt(e.target.value)})}
-                          className="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">1名あたり月額</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-2 text-slate-500">¥</span>
+                          <input 
+                            type="number" 
+                            min="0"
+                            value={formData.monthlyCostPerUser}
+                            onChange={e => setFormData({...formData, monthlyCostPerUser: parseInt(e.target.value)})}
+                            className="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
+
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">管理責任者</label>
                     <input 
@@ -300,6 +346,19 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem }) =
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="例: 佐藤 太郎"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">ステータス</label>
+                    <select
+                      value={formData.status}
+                      onChange={e => setFormData({...formData, status: e.target.value as any})}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="Active">稼働中</option>
+                      <option value="Review">見直し検討中</option>
+                      <option value="Canceling">解約予定</option>
+                    </select>
                   </div>
                   
                   <div className="pt-4 flex justify-end space-x-3">
@@ -314,7 +373,7 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem }) =
                       type="submit"
                       className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
                     >
-                      登録する
+                      {editingSystem ? '更新する' : '登録する'}
                     </button>
                   </div>
                </form>

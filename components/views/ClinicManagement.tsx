@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { Building, MapPin, Phone, Armchair, Plus, X } from 'lucide-react';
+import { Building, MapPin, Phone, Armchair, Plus, X, Pencil } from 'lucide-react';
 import { Clinic, Employee, ClinicType } from '../../types';
 
 interface ClinicManagementProps {
   clinics: Clinic[];
   employees: Employee[];
   onAddClinic: (clinic: Clinic) => void;
+  onUpdateClinic: (clinic: Clinic) => void;
 }
 
-const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees, onAddClinic }) => {
+const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees, onAddClinic, onUpdateClinic }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingClinic, setEditingClinic] = useState<Clinic | null>(null);
   
   // Form State
   const [name, setName] = useState('');
@@ -18,23 +20,53 @@ const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees,
   const [phone, setPhone] = useState('');
   const [chairs, setChairs] = useState(0);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newClinic: Clinic = {
-      id: `c_${Date.now()}`,
-      name,
-      type,
-      address,
-      phone,
-      chairs
-    };
-    onAddClinic(newClinic);
-    setIsModalOpen(false);
-    // Reset form
+  const openAddModal = () => {
+    setEditingClinic(null);
     setName('');
+    setType(ClinicType.BRANCH);
     setAddress('');
     setPhone('');
     setChairs(0);
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (clinic: Clinic) => {
+    setEditingClinic(clinic);
+    setName(clinic.name);
+    setType(clinic.type);
+    setAddress(clinic.address);
+    setPhone(clinic.phone);
+    setChairs(clinic.chairs);
+    setIsModalOpen(true);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (editingClinic) {
+      // Update existing
+      onUpdateClinic({
+        ...editingClinic,
+        name,
+        type,
+        address,
+        phone,
+        chairs
+      });
+    } else {
+      // Create new
+      const newClinic: Clinic = {
+        id: `c_${Date.now()}`,
+        name,
+        type,
+        address,
+        phone,
+        chairs
+      };
+      onAddClinic(newClinic);
+    }
+    
+    setIsModalOpen(false);
   };
 
   return (
@@ -45,7 +77,7 @@ const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees,
           <p className="text-slate-500">法人内の全クリニックと組織構造の管理</p>
         </div>
         <button 
-          onClick={() => setIsModalOpen(true)}
+          onClick={openAddModal}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center"
         >
           <Plus size={16} className="mr-1" />
@@ -59,7 +91,7 @@ const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees,
           <h3 className="mt-2 text-sm font-medium text-slate-900">医院が登録されていません</h3>
           <p className="mt-1 text-sm text-slate-500">まずは本院の情報を登録しましょう。</p>
           <button 
-            onClick={() => setIsModalOpen(true)}
+            onClick={openAddModal}
             className="mt-4 text-blue-600 hover:text-blue-800 text-sm font-medium"
           >
             + 最初の医院を登録
@@ -71,7 +103,7 @@ const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees,
             const staffCount = employees.filter(e => e.clinicId === clinic.id).length;
             
             return (
-              <div key={clinic.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div key={clinic.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden group">
                 <div className="p-6">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center space-x-4">
@@ -114,7 +146,11 @@ const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees,
                     <div className="text-sm text-slate-600">
                       <strong>組織責任者:</strong> 未設定
                     </div>
-                    <button className="text-sm text-blue-600 font-medium hover:text-blue-800">
+                    <button 
+                      onClick={() => openEditModal(clinic)}
+                      className="text-sm text-blue-600 font-medium hover:text-blue-800 flex items-center"
+                    >
+                      <Pencil size={14} className="mr-1" />
                       詳細・編集
                     </button>
                   </div>
@@ -125,12 +161,14 @@ const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees,
         </div>
       )}
 
-      {/* Add Clinic Modal */}
+      {/* Add/Edit Clinic Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-slate-900">新規医院登録</h3>
+              <h3 className="text-lg font-bold text-slate-900">
+                {editingClinic ? '医院情報を編集' : '新規医院登録'}
+              </h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={20} />
               </button>
@@ -223,7 +261,7 @@ const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees,
                   type="submit"
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
                 >
-                  登録する
+                  {editingClinic ? '更新する' : '登録する'}
                 </button>
               </div>
             </form>

@@ -8,7 +8,7 @@ import CostAnalysis from './components/views/CostAnalysis';
 import Governance from './components/views/Governance';
 import Auth from './components/Auth';
 import SuperAdminDashboard from './components/views/SuperAdminDashboard';
-import { Upload } from 'lucide-react';
+import { Upload, RotateCcw } from 'lucide-react';
 import { AppState, Tenant, User, UserRole, Clinic, SystemTool, Employee } from './types';
 import { CLINICS, EMPLOYEES, SYSTEMS } from './constants';
 
@@ -48,17 +48,32 @@ const App: React.FC = () => {
   
   // Auth & Data State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [tenants, setTenants] = useState<Tenant[]>(INITIAL_TENANTS);
+  
+  // Initialize Tenants from LocalStorage if available
+  const [tenants, setTenants] = useState<Tenant[]>(() => {
+    try {
+      const savedData = localStorage.getItem('dental_it_manager_data');
+      if (savedData) {
+        return JSON.parse(savedData);
+      }
+    } catch (e) {
+      console.error('Failed to load local data', e);
+    }
+    return INITIAL_TENANTS;
+  });
+
+  // Save to LocalStorage whenever tenants change
+  useEffect(() => {
+    localStorage.setItem('dental_it_manager_data', JSON.stringify(tenants));
+  }, [tenants]);
 
   // Derived state for current tenant data
   const currentTenant = tenants.find(t => t.id === currentUser?.tenantId);
   
-  // --- Mock Auth Actions ---
+  // --- Auth Actions ---
   const login = async (email: string, pass: string): Promise<boolean> => {
-    // Simulating API Call
-    await new Promise(resolve => setTimeout(resolve, 800));
+    await new Promise(resolve => setTimeout(resolve, 500));
 
-    // Super Admin Check
     if (email === 'admin@saas-provider.com' && pass === 'admin') {
       setCurrentUser({
         id: 'super_admin_01',
@@ -70,7 +85,6 @@ const App: React.FC = () => {
       return true;
     }
 
-    // Demo User Check
     if (email === 'demo@whitedental.jp' && pass === 'demo') {
       setCurrentUser({
         id: 'user_demo_01',
@@ -82,7 +96,6 @@ const App: React.FC = () => {
       return true;
     }
 
-    // Check newly created users (In a real app, this hits DB)
     const matchedTenant = tenants.find(t => t.ownerEmail === email);
     if (matchedTenant) {
        setCurrentUser({
@@ -101,7 +114,6 @@ const App: React.FC = () => {
   const signup = async (company: string, email: string, pass: string): Promise<boolean> => {
     await new Promise(resolve => setTimeout(resolve, 800));
 
-    // Create new empty tenant
     const newTenantId = `tenant_${Date.now()}`;
     const newTenant: Tenant = {
       id: newTenantId,
@@ -117,7 +129,6 @@ const App: React.FC = () => {
 
     setTenants([...tenants, newTenant]);
     
-    // Auto login
     setCurrentUser({
       id: `user_${newTenantId}`,
       email,
@@ -134,32 +145,77 @@ const App: React.FC = () => {
     setActiveTab('dashboard');
   };
 
-  // --- Data Mutation Actions ---
+  const resetData = () => {
+    if (confirm('現在のデータを全て削除し、初期デモデータに戻しますか？この操作は取り消せません。')) {
+      localStorage.removeItem('dental_it_manager_data');
+      setTenants(INITIAL_TENANTS);
+      alert('データをリセットしました。');
+    }
+  };
+
+  // --- Data Mutation Actions (Create & Update) ---
+  
+  // Clinics
   const handleAddClinic = (newClinic: Clinic) => {
     if (!currentUser || !currentTenant) return;
     setTenants(prev => prev.map(t => {
+      if (t.id === currentTenant.id) return { ...t, clinics: [...t.clinics, newClinic] };
+      return t;
+    }));
+  };
+
+  const handleUpdateClinic = (updatedClinic: Clinic) => {
+    if (!currentUser || !currentTenant) return;
+    setTenants(prev => prev.map(t => {
       if (t.id === currentTenant.id) {
-        return { ...t, clinics: [...t.clinics, newClinic] };
+        return { 
+          ...t, 
+          clinics: t.clinics.map(c => c.id === updatedClinic.id ? updatedClinic : c) 
+        };
       }
       return t;
     }));
   };
 
+  // Systems
   const handleAddSystem = (newSystem: SystemTool) => {
     if (!currentUser || !currentTenant) return;
     setTenants(prev => prev.map(t => {
+      if (t.id === currentTenant.id) return { ...t, systems: [...t.systems, newSystem] };
+      return t;
+    }));
+  };
+
+  const handleUpdateSystem = (updatedSystem: SystemTool) => {
+    if (!currentUser || !currentTenant) return;
+    setTenants(prev => prev.map(t => {
       if (t.id === currentTenant.id) {
-        return { ...t, systems: [...t.systems, newSystem] };
+        return { 
+          ...t, 
+          systems: t.systems.map(s => s.id === updatedSystem.id ? updatedSystem : s) 
+        };
       }
       return t;
     }));
   };
 
+  // Employees
   const handleAddEmployee = (newEmployee: Employee) => {
     if (!currentUser || !currentTenant) return;
     setTenants(prev => prev.map(t => {
+      if (t.id === currentTenant.id) return { ...t, employees: [...t.employees, newEmployee] };
+      return t;
+    }));
+  };
+
+  const handleUpdateEmployee = (updatedEmployee: Employee) => {
+    if (!currentUser || !currentTenant) return;
+    setTenants(prev => prev.map(t => {
       if (t.id === currentTenant.id) {
-        return { ...t, employees: [...t.employees, newEmployee] };
+        return { 
+          ...t, 
+          employees: t.employees.map(e => e.id === updatedEmployee.id ? updatedEmployee : e) 
+        };
       }
       return t;
     }));
@@ -183,11 +239,32 @@ const App: React.FC = () => {
       case 'dashboard':
         return <Dashboard clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} />;
       case 'clinics':
-        return <ClinicManagement clinics={currentTenant.clinics} employees={currentTenant.employees} onAddClinic={handleAddClinic} />;
+        return (
+          <ClinicManagement 
+            clinics={currentTenant.clinics} 
+            employees={currentTenant.employees} 
+            onAddClinic={handleAddClinic} 
+            onUpdateClinic={handleUpdateClinic}
+          />
+        );
       case 'systems':
-        return <SystemCatalog systems={currentTenant.systems} onAddSystem={handleAddSystem} />;
+        return (
+          <SystemCatalog 
+            systems={currentTenant.systems} 
+            onAddSystem={handleAddSystem} 
+            onUpdateSystem={handleUpdateSystem}
+          />
+        );
       case 'users':
-        return <UserDirectory clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} onAddEmployee={handleAddEmployee} />;
+        return (
+          <UserDirectory 
+            clinics={currentTenant.clinics} 
+            systems={currentTenant.systems} 
+            employees={currentTenant.employees} 
+            onAddEmployee={handleAddEmployee}
+            onUpdateEmployee={handleUpdateEmployee}
+          />
+        );
       case 'costs':
         return <CostAnalysis systems={currentTenant.systems} employees={currentTenant.employees} />;
       case 'governance':
@@ -204,7 +281,15 @@ const App: React.FC = () => {
       user={currentUser}
       onLogout={logout}
     >
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex justify-end space-x-3">
+         <button 
+           onClick={resetData}
+           className="flex items-center text-xs text-slate-400 hover:text-red-600 transition-colors"
+           title="データを初期状態に戻す"
+         >
+           <RotateCcw size={14} className="mr-1" />
+           データリセット
+         </button>
          <button 
            onClick={() => setShowImportModal(true)}
            className="flex items-center text-xs text-slate-500 hover:text-blue-600 transition-colors"

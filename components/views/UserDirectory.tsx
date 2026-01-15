@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Filter, MoreHorizontal, UserPlus, X } from 'lucide-react';
+import { Search, Filter, MoreHorizontal, UserPlus, X, Pencil } from 'lucide-react';
 import { Clinic, Employee, SystemTool, StaffRole, EmploymentType } from '../../types';
 
 interface UserDirectoryProps {
@@ -7,11 +7,13 @@ interface UserDirectoryProps {
   systems: SystemTool[];
   employees: Employee[];
   onAddEmployee: (employee: Employee) => void;
+  onUpdateEmployee: (employee: Employee) => void;
 }
 
-const UserDirectory: React.FC<UserDirectoryProps> = ({ clinics, systems, employees, onAddEmployee }) => {
+const UserDirectory: React.FC<UserDirectoryProps> = ({ clinics, systems, employees, onAddEmployee, onUpdateEmployee }) => {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -31,19 +33,8 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ clinics, systems, employe
     e.email.includes(searchTerm)
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.lastName || !formData.email) return;
-
-    const newEmployee: Employee = {
-      id: `e_${Date.now()}`,
-      ...formData,
-      status: 'Active'
-    };
-    
-    onAddEmployee(newEmployee);
-    setIsModalOpen(false);
-    // Reset Form (keep date and some defaults)
+  const openAddModal = () => {
+    setEditingEmployee(null);
     setFormData({
       lastName: '',
       firstName: '',
@@ -54,6 +45,44 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ clinics, systems, employe
       joinDate: new Date().toISOString().split('T')[0],
       assignedSystems: []
     });
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (employee: Employee) => {
+    setEditingEmployee(employee);
+    setFormData({
+      lastName: employee.lastName,
+      firstName: employee.firstName,
+      email: employee.email,
+      clinicId: employee.clinicId,
+      role: employee.role,
+      employmentType: employee.employmentType,
+      joinDate: employee.joinDate,
+      assignedSystems: employee.assignedSystems
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.lastName || !formData.email) return;
+
+    if (editingEmployee) {
+      onUpdateEmployee({
+        ...editingEmployee,
+        ...formData,
+        status: editingEmployee.status
+      });
+    } else {
+      const newEmployee: Employee = {
+        id: `e_${Date.now()}`,
+        ...formData,
+        status: 'Active'
+      };
+      onAddEmployee(newEmployee);
+    }
+    
+    setIsModalOpen(false);
   };
 
   const toggleSystemAssignment = (sysId: string) => {
@@ -78,7 +107,7 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ clinics, systems, employe
             <Filter size={16} className="mr-2" /> フィルター
           </button>
           <button 
-            onClick={() => setIsModalOpen(true)}
+            onClick={openAddModal}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center"
           >
             <UserPlus size={16} className="mr-2" /> スタッフ登録
@@ -125,7 +154,7 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ clinics, systems, employe
                 filteredEmployees.map((person) => {
                   const clinicName = clinics.find(c => c.id === person.clinicId)?.name || '不明';
                   return (
-                    <tr key={person.id} className="hover:bg-slate-50">
+                    <tr key={person.id} className="hover:bg-slate-50 group">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
                           <div className="flex-shrink-0 h-10 w-10 bg-slate-200 rounded-full flex items-center justify-center text-slate-500 font-bold">
@@ -162,8 +191,11 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ clinics, systems, employe
                         {person.joinDate}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button className="text-slate-400 hover:text-slate-600">
-                          <MoreHorizontal size={20} />
+                        <button 
+                          onClick={() => openEditModal(person)}
+                          className="text-slate-400 hover:text-slate-600"
+                        >
+                          <Pencil size={18} />
                         </button>
                       </td>
                     </tr>
@@ -175,12 +207,14 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ clinics, systems, employe
         </div>
       </div>
 
-       {/* Add Employee Modal */}
+       {/* Add/Edit Employee Modal */}
        {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-slate-900">スタッフ登録</h3>
+              <h3 className="text-lg font-bold text-slate-900">
+                {editingEmployee ? 'スタッフ情報を編集' : 'スタッフ登録'}
+              </h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={20} />
               </button>
@@ -306,7 +340,7 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ clinics, systems, employe
                    type="submit"
                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
                  >
-                   登録する
+                   {editingEmployee ? '更新する' : '登録する'}
                  </button>
                </div>
             </form>

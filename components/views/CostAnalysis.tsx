@@ -1,12 +1,17 @@
 import React from 'react';
-import { SYSTEMS, EMPLOYEES } from '../../constants';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { DollarSign, TrendingUp } from 'lucide-react';
+import { SystemTool, Employee } from '../../types';
 
-const CostAnalysis: React.FC = () => {
+interface CostAnalysisProps {
+  systems: SystemTool[];
+  employees: Employee[];
+}
+
+const CostAnalysis: React.FC<CostAnalysisProps> = ({ systems, employees }) => {
   // Compute cost data per system
-  const systemCosts = SYSTEMS.map(sys => {
-    const userCount = EMPLOYEES.filter(e => e.assignedSystems.includes(sys.id)).length;
+  const systemCosts = systems.map(sys => {
+    const userCount = employees.filter(e => e.assignedSystems.includes(sys.id)).length;
     const totalCost = sys.baseMonthlyCost + (sys.monthlyCostPerUser * userCount);
     return {
       name: sys.name,
@@ -38,7 +43,7 @@ const CostAnalysis: React.FC = () => {
               <TrendingUp size={18} className="text-blue-600 mt-0.5 mr-2" />
               <p className="text-sm text-blue-800">
                 1人あたりのITコスト: <br/>
-                <span className="font-bold">¥{Math.round(totalMonthlyCost / EMPLOYEES.length).toLocaleString()}</span>
+                <span className="font-bold">¥{employees.length > 0 ? Math.round(totalMonthlyCost / employees.length).toLocaleString() : 0}</span>
               </p>
             </div>
           </div>
@@ -72,7 +77,7 @@ const CostAnalysis: React.FC = () => {
                      <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: COLORS[idx] }}></div>
                      {item.name}
                    </div>
-                   <span className="font-medium text-slate-700">{Math.round((item.value / totalMonthlyCost) * 100)}%</span>
+                   <span className="font-medium text-slate-700">{Math.round((item.value / (totalMonthlyCost || 1)) * 100)}%</span>
                  </div>
                ))}
              </div>
@@ -95,8 +100,14 @@ const CostAnalysis: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {systemCosts.map((item) => {
-                   const sys = SYSTEMS.find(s => s.name === item.name);
+                {systemCosts.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-12 text-center text-sm text-slate-500">
+                      データがありません
+                    </td>
+                  </tr>
+                ) : systemCosts.map((item) => {
+                   const sys = systems.find(s => s.name === item.name);
                    return (
                     <tr key={item.name} className="hover:bg-slate-50">
                       <td className="px-6 py-4 text-sm font-medium text-slate-900">{item.name}</td>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './components/views/Dashboard';
 import ClinicManagement from './components/views/ClinicManagement';
@@ -6,33 +6,173 @@ import SystemCatalog from './components/views/SystemCatalog';
 import UserDirectory from './components/views/UserDirectory';
 import CostAnalysis from './components/views/CostAnalysis';
 import Governance from './components/views/Governance';
+import Auth from './components/Auth';
+import SuperAdminDashboard from './components/views/SuperAdminDashboard';
 import { Upload } from 'lucide-react';
+import { AppState, Tenant, User, UserRole } from './types';
+import { CLINICS, EMPLOYEES, SYSTEMS } from './constants';
+
+// Initial Mock Data Seeding
+const DEMO_TENANT_ID = 'tenant_demo_001';
+const INITIAL_TENANTS: Tenant[] = [
+  {
+    id: DEMO_TENANT_ID,
+    name: 'ホワイトデンタルクリニック',
+    plan: 'Pro',
+    status: 'Active',
+    createdAt: '2023-04-01',
+    ownerEmail: 'demo@whitedental.jp',
+    clinics: CLINICS,
+    systems: SYSTEMS,
+    employees: EMPLOYEES
+  },
+  {
+    id: 'tenant_sample_002',
+    name: 'スマイル矯正歯科',
+    plan: 'Enterprise',
+    status: 'Active',
+    createdAt: '2024-01-15',
+    ownerEmail: 'admin@smile-ortho.jp',
+    clinics: [
+      { id: 'c_s_1', name: 'スマイル矯正歯科 渋谷', type: '本院' as any, address: '東京都渋谷区', chairs: 12, phone: '03-9999-8888' }
+    ],
+    systems: [SYSTEMS[0]], // Only Google Workspace
+    employees: [EMPLOYEES[0], EMPLOYEES[1]] // Just a few
+  }
+];
 
 const App: React.FC = () => {
+  // --- Global State ---
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showImportModal, setShowImportModal] = useState(false);
+  
+  // Auth & Data State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [tenants, setTenants] = useState<Tenant[]>(INITIAL_TENANTS);
+
+  // Derived state for current tenant data
+  const currentTenant = tenants.find(t => t.id === currentUser?.tenantId);
+  
+  // --- Mock Auth Actions ---
+  const login = async (email: string, pass: string): Promise<boolean> => {
+    // Simulating API Call
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    // Super Admin Check
+    if (email === 'admin@saas-provider.com' && pass === 'admin') {
+      setCurrentUser({
+        id: 'super_admin_01',
+        email,
+        name: 'SaaS Administrator',
+        role: UserRole.SUPER_ADMIN,
+        tenantId: 'system'
+      });
+      return true;
+    }
+
+    // Demo User Check
+    if (email === 'demo@whitedental.jp' && pass === 'demo') {
+      setCurrentUser({
+        id: 'user_demo_01',
+        email,
+        name: '管理者 アカウント',
+        role: UserRole.CLIENT_ADMIN,
+        tenantId: DEMO_TENANT_ID
+      });
+      return true;
+    }
+
+    // Check newly created users (In a real app, this hits DB)
+    const matchedTenant = tenants.find(t => t.ownerEmail === email);
+    if (matchedTenant) {
+       setCurrentUser({
+         id: `user_${matchedTenant.id}`,
+         email,
+         name: `${matchedTenant.name} 管理者`,
+         role: UserRole.CLIENT_ADMIN,
+         tenantId: matchedTenant.id
+       });
+       return true;
+    }
+
+    return false;
+  };
+
+  const signup = async (company: string, email: string, pass: string): Promise<boolean> => {
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    // Create new empty tenant
+    const newTenantId = `tenant_${Date.now()}`;
+    const newTenant: Tenant = {
+      id: newTenantId,
+      name: company,
+      plan: 'Free',
+      status: 'Active',
+      createdAt: new Date().toISOString().split('T')[0],
+      ownerEmail: email,
+      clinics: [],
+      systems: [],
+      employees: []
+    };
+
+    setTenants([...tenants, newTenant]);
+    
+    // Auto login
+    setCurrentUser({
+      id: `user_${newTenantId}`,
+      email,
+      name: `${company} 管理者`,
+      role: UserRole.CLIENT_ADMIN,
+      tenantId: newTenantId
+    });
+
+    return true;
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+    setActiveTab('dashboard');
+  };
+
+  // --- Rendering ---
+
+  if (!currentUser) {
+    return <Auth onLogin={login} onSignup={signup} />;
+  }
+
+  if (currentUser.role === UserRole.SUPER_ADMIN) {
+    return <SuperAdminDashboard tenants={tenants} onLogout={logout} />;
+  }
+
+  // Safety check
+  if (!currentTenant) return <div>Error loading tenant data</div>;
 
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} />;
       case 'clinics':
-        return <ClinicManagement />;
+        return <ClinicManagement clinics={currentTenant.clinics} employees={currentTenant.employees} />;
       case 'systems':
-        return <SystemCatalog />;
+        return <SystemCatalog systems={currentTenant.systems} />;
       case 'users':
-        return <UserDirectory />;
+        return <UserDirectory clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} />;
       case 'costs':
-        return <CostAnalysis />;
+        return <CostAnalysis systems={currentTenant.systems} employees={currentTenant.employees} />;
       case 'governance':
         return <Governance />;
       default:
-        return <Dashboard />;
+        return <Dashboard clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} />;
     }
   };
 
   return (
-    <Layout activeTab={activeTab} onTabChange={setActiveTab}>
+    <Layout 
+      activeTab={activeTab} 
+      onTabChange={setActiveTab} 
+      user={currentUser}
+      onLogout={logout}
+    >
       <div className="mb-4 flex justify-end">
          <button 
            onClick={() => setShowImportModal(true)}

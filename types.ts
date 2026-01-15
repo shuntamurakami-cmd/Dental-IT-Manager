@@ -60,3 +60,35 @@ export interface NavItem {
   label: string;
   icon: React.ReactNode;
 }
+
+// SaaS / Auth Types
+export enum UserRole {
+  CLIENT_ADMIN = 'CLIENT_ADMIN',
+  SUPER_ADMIN = 'SUPER_ADMIN',
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  tenantId: string; // Creates the link to data
+}
+
+export interface Tenant {
+  id: string;
+  name: string; // Organization Name
+  plan: 'Free' | 'Pro' | 'Enterprise';
+  status: 'Active' | 'Inactive';
+  createdAt: string;
+  ownerEmail: string;
+  // Data Store for this tenant
+  clinics: Clinic[];
+  systems: SystemTool[];
+  employees: Employee[];
+}
+
+export interface AppState {
+  currentUser: User | null;
+  tenants: Tenant[]; // In a real app, this would be in DB. Here we store all mock data.
+}

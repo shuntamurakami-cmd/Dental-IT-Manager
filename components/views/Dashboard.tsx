@@ -12,39 +12,44 @@ import {
   Cell
 } from 'recharts';
 import { Users, CreditCard, AlertTriangle, CheckCircle } from 'lucide-react';
-import { CLINICS, EMPLOYEES, SYSTEMS } from '../../constants';
-import { ClinicType } from '../../types';
+import { Clinic, Employee, SystemTool } from '../../types';
 
-const Dashboard: React.FC = () => {
+interface DashboardProps {
+  clinics: Clinic[];
+  systems: SystemTool[];
+  employees: Employee[];
+}
+
+const Dashboard: React.FC<DashboardProps> = ({ clinics, systems, employees }) => {
   // Calculate Totals
-  const totalStaff = EMPLOYEES.length;
+  const totalStaff = employees.length;
   
-  // Simple Cost Approx (Logic repeated in Cost component, simplified here)
-  const monthlyTotal = SYSTEMS.reduce((acc, sys) => {
-    const userCount = EMPLOYEES.filter(e => e.assignedSystems.includes(sys.id)).length;
+  // Simple Cost Approx
+  const monthlyTotal = systems.reduce((acc, sys) => {
+    const userCount = employees.filter(e => e.assignedSystems.includes(sys.id)).length;
     return acc + sys.baseMonthlyCost + (sys.monthlyCostPerUser * userCount);
   }, 0);
 
-  const activeAlerts = SYSTEMS.filter(s => s.status === 'Review' || s.issues.length > 0).length;
+  const activeAlerts = systems.filter(s => s.status === 'Review' || s.issues.length > 0).length;
 
   // Chart Data: Staff by Role
   const roleData = React.useMemo(() => {
     const roles: Record<string, number> = {};
-    EMPLOYEES.forEach(e => {
+    employees.forEach(e => {
       roles[e.role] = (roles[e.role] || 0) + 1;
     });
     return Object.keys(roles).map(role => ({ name: role.split(' ')[0], count: roles[role] }));
-  }, []);
+  }, [employees]);
 
   // Chart Data: Staff by Clinic
   const clinicData = React.useMemo(() => {
-    return CLINICS.map(clinic => {
+    return clinics.map(clinic => {
       return {
         name: clinic.name.replace('ホワイトデンタル ', '').replace('クリニック', ''),
-        count: EMPLOYEES.filter(e => e.clinicId === clinic.id).length
+        count: employees.filter(e => e.clinicId === clinic.id).length
       };
     });
-  }, []);
+  }, [clinics, employees]);
 
   const COLORS = ['#0ea5e9', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'];
 
@@ -85,7 +90,7 @@ const Dashboard: React.FC = () => {
           </div>
           <div className="mt-4 flex items-center text-sm text-slate-600">
             <span className="font-medium mr-2">内訳:</span>
-            常勤 {EMPLOYEES.filter(e => e.employmentType === '常勤').length} / 非常勤 {EMPLOYEES.filter(e => e.employmentType === '非常勤').length}
+            常勤 {employees.filter(e => e.employmentType === '常勤').length} / 非常勤 {employees.filter(e => e.employmentType === '非常勤').length}
           </div>
         </div>
 

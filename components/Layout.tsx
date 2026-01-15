@@ -8,16 +8,20 @@ import {
   ShieldCheck, 
   Menu,
   X,
-  Database
+  Database,
+  LogOut
 } from 'lucide-react';
+import { User } from '../types';
 
 interface LayoutProps {
   children: React.ReactNode;
   activeTab: string;
   onTabChange: (tabId: string) => void;
+  user: User | null;
+  onLogout: () => void;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => {
+const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
   const navItems = [
@@ -43,6 +47,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
       <aside className={`
         fixed inset-y-0 left-0 z-30 w-64 bg-slate-900 text-white transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:inset-0
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+        flex flex-col
       `}>
         <div className="flex items-center justify-between h-16 px-6 bg-slate-950">
           <div className="flex items-center space-x-2">
@@ -79,14 +84,23 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
         </nav>
 
         <div className="p-4 border-t border-slate-800">
-          <div className="flex items-center">
-            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold">
-              AD
+          <div className="flex items-center justify-between">
+            <div className="flex items-center min-w-0">
+              <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold shrink-0">
+                {user?.name.slice(0, 2).toUpperCase() || 'US'}
+              </div>
+              <div className="ml-3 min-w-0">
+                <p className="text-sm font-medium text-white truncate">{user?.name}</p>
+                <p className="text-xs text-slate-400 truncate">{user?.email}</p>
+              </div>
             </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-white">管理者 アカウント</p>
-              <p className="text-xs text-slate-400">admin@whitedental.jp</p>
-            </div>
+            <button 
+              onClick={onLogout}
+              className="ml-2 text-slate-400 hover:text-white transition-colors"
+              title="ログアウト"
+            >
+              <LogOut size={18} />
+            </button>
           </div>
         </div>
       </aside>

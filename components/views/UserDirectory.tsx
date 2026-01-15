@@ -1,11 +1,17 @@
 import React from 'react';
 import { Search, Filter, MoreHorizontal, UserPlus } from 'lucide-react';
-import { EMPLOYEES, CLINICS, SYSTEMS } from '../../constants';
+import { Clinic, Employee, SystemTool } from '../../types';
 
-const UserDirectory: React.FC = () => {
+interface UserDirectoryProps {
+  clinics: Clinic[];
+  systems: SystemTool[];
+  employees: Employee[];
+}
+
+const UserDirectory: React.FC<UserDirectoryProps> = ({ clinics, systems, employees }) => {
   const [searchTerm, setSearchTerm] = React.useState('');
 
-  const filteredEmployees = EMPLOYEES.filter(e => 
+  const filteredEmployees = employees.filter(e => 
     e.lastName.includes(searchTerm) || 
     e.firstName.includes(searchTerm) ||
     e.email.includes(searchTerm)
@@ -57,53 +63,61 @@ const UserDirectory: React.FC = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-200">
-              {filteredEmployees.map((person) => {
-                const clinicName = CLINICS.find(c => c.id === person.clinicId)?.name || '不明';
-                return (
-                  <tr key={person.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10 bg-slate-200 rounded-full flex items-center justify-center text-slate-500 font-bold">
-                          {person.lastName[0]}
+              {filteredEmployees.length === 0 ? (
+                <tr>
+                   <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-500">
+                     該当するスタッフが見つかりません。
+                   </td>
+                </tr>
+              ) : (
+                filteredEmployees.map((person) => {
+                  const clinicName = clinics.find(c => c.id === person.clinicId)?.name || '不明';
+                  return (
+                    <tr key={person.id} className="hover:bg-slate-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className="flex-shrink-0 h-10 w-10 bg-slate-200 rounded-full flex items-center justify-center text-slate-500 font-bold">
+                            {person.lastName[0]}
+                          </div>
+                          <div className="ml-4">
+                            <div className="text-sm font-medium text-slate-900">{person.lastName} {person.firstName}</div>
+                            <div className="text-sm text-slate-500">{person.email}</div>
+                          </div>
                         </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-slate-900">{person.lastName} {person.firstName}</div>
-                          <div className="text-sm text-slate-500">{person.email}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-slate-900">{person.role}</div>
+                        <div className="text-xs text-slate-500">{clinicName}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-slate-100 text-slate-800">
+                          {person.employmentType}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                        <div className="flex -space-x-1 overflow-hidden">
+                          {person.assignedSystems.map(sysId => {
+                            const sys = systems.find(s => s.id === sysId);
+                            return (
+                              <div key={sysId} title={sys?.name} className="inline-block h-6 w-6 rounded-full ring-2 ring-white bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-800">
+                                {sys?.name?.[0] || '?'}
+                              </div>
+                            )
+                          })}
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-slate-900">{person.role}</div>
-                      <div className="text-xs text-slate-500">{clinicName}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-slate-100 text-slate-800">
-                        {person.employmentType}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-                      <div className="flex -space-x-1 overflow-hidden">
-                        {person.assignedSystems.map(sysId => {
-                          const sys = SYSTEMS.find(s => s.id === sysId);
-                          return (
-                            <div key={sysId} title={sys?.name} className="inline-block h-6 w-6 rounded-full ring-2 ring-white bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-800">
-                              {sys?.name?.[0] || '?'}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-                      {person.joinDate}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button className="text-slate-400 hover:text-slate-600">
-                        <MoreHorizontal size={20} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                        {person.joinDate}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button className="text-slate-400 hover:text-slate-600">
+                          <MoreHorizontal size={20} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

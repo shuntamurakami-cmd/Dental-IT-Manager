@@ -9,7 +9,7 @@ import Governance from './components/views/Governance';
 import Auth from './components/Auth';
 import SuperAdminDashboard from './components/views/SuperAdminDashboard';
 import { Upload } from 'lucide-react';
-import { AppState, Tenant, User, UserRole } from './types';
+import { AppState, Tenant, User, UserRole, Clinic, SystemTool, Employee } from './types';
 import { CLINICS, EMPLOYEES, SYSTEMS } from './constants';
 
 // Initial Mock Data Seeding
@@ -134,6 +134,37 @@ const App: React.FC = () => {
     setActiveTab('dashboard');
   };
 
+  // --- Data Mutation Actions ---
+  const handleAddClinic = (newClinic: Clinic) => {
+    if (!currentUser || !currentTenant) return;
+    setTenants(prev => prev.map(t => {
+      if (t.id === currentTenant.id) {
+        return { ...t, clinics: [...t.clinics, newClinic] };
+      }
+      return t;
+    }));
+  };
+
+  const handleAddSystem = (newSystem: SystemTool) => {
+    if (!currentUser || !currentTenant) return;
+    setTenants(prev => prev.map(t => {
+      if (t.id === currentTenant.id) {
+        return { ...t, systems: [...t.systems, newSystem] };
+      }
+      return t;
+    }));
+  };
+
+  const handleAddEmployee = (newEmployee: Employee) => {
+    if (!currentUser || !currentTenant) return;
+    setTenants(prev => prev.map(t => {
+      if (t.id === currentTenant.id) {
+        return { ...t, employees: [...t.employees, newEmployee] };
+      }
+      return t;
+    }));
+  };
+
   // --- Rendering ---
 
   if (!currentUser) {
@@ -152,11 +183,11 @@ const App: React.FC = () => {
       case 'dashboard':
         return <Dashboard clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} />;
       case 'clinics':
-        return <ClinicManagement clinics={currentTenant.clinics} employees={currentTenant.employees} />;
+        return <ClinicManagement clinics={currentTenant.clinics} employees={currentTenant.employees} onAddClinic={handleAddClinic} />;
       case 'systems':
-        return <SystemCatalog systems={currentTenant.systems} />;
+        return <SystemCatalog systems={currentTenant.systems} onAddSystem={handleAddSystem} />;
       case 'users':
-        return <UserDirectory clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} />;
+        return <UserDirectory clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} onAddEmployee={handleAddEmployee} />;
       case 'costs':
         return <CostAnalysis systems={currentTenant.systems} employees={currentTenant.employees} />;
       case 'governance':

@@ -1,5 +1,58 @@
 import React from 'react';
 
+// --- Database Row Types (Supabase Direct) ---
+
+export interface DBT_Tenant {
+  id: string;
+  name: string;
+  plan: 'Free' | 'Pro' | 'Enterprise';
+  status: string;
+  owner_email: string;
+  governance: GovernanceConfig; // JSONB
+  created_at: string;
+}
+
+export interface DBT_Clinic {
+  id: string;
+  tenant_id: string;
+  name: string;
+  type: string;
+  address: string;
+  chairs: number;
+  phone: string;
+  created_at?: string;
+}
+
+export interface DBT_System {
+  id: string;
+  tenant_id: string;
+  name: string;
+  category: string;
+  url: string;
+  status: 'Active' | 'Review' | 'Canceling';
+  base_monthly_cost: number;
+  monthly_cost_per_user: number;
+  renewal_date: string;
+  admin_owner: string;
+  vendor_contact: string;
+  issues: string[]; // text array
+}
+
+export interface DBT_Employee {
+  id: string;
+  tenant_id: string;
+  clinic_id: string | null;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role: string;
+  employment_type: string;
+  status: string;
+  join_date: string;
+}
+
+// --- Application Domain Types (Frontend Use) ---
+
 export enum ClinicType {
   HQ = '本院',
   BRANCH = '分院',
@@ -19,6 +72,11 @@ export enum EmploymentType {
   PART_TIME = '非常勤',
 }
 
+// Domain Model matches DBT but with CamelCase for frontend consistency if needed,
+// but for simplicity, we map DB snake_case to these interfaces.
+// Currently keeping the existing interface structure to minimize breaking changes in components,
+// but eventually these should map to the DB columns.
+
 export interface Clinic {
   id: string;
   name: string;
@@ -33,32 +91,26 @@ export interface SystemTool {
   name: string;
   category: string;
   url: string;
-  monthlyCostPerUser: number;
-  baseMonthlyCost: number;
-  renewalDate: string; // ISO Date
-  adminOwner: string;
-  vendorContact: string;
+  monthlyCostPerUser: number; // Mapped from monthly_cost_per_user
+  baseMonthlyCost: number;    // Mapped from base_monthly_cost
+  renewalDate: string;        // Mapped from renewal_date
+  adminOwner: string;         // Mapped from admin_owner
+  vendorContact: string;      // Mapped from vendor_contact
   status: 'Active' | 'Review' | 'Canceling';
   issues: string[];
 }
 
 export interface Employee {
   id: string;
-  firstName: string;
-  lastName: string;
-  clinicId: string;
+  firstName: string; // Mapped from first_name
+  lastName: string;  // Mapped from last_name
+  clinicId: string;  // Mapped from clinic_id
   role: StaffRole;
-  employmentType: EmploymentType;
+  employmentType: EmploymentType; // Mapped from employment_type
   email: string;
-  joinDate: string;
-  assignedSystems: string[]; // System IDs
+  joinDate: string;  // Mapped from join_date
+  assignedSystems: string[]; // This now comes from a join query
   status: 'Active' | 'Onboarding' | 'Offboarding';
-}
-
-export interface NavItem {
-  id: string;
-  label: string;
-  icon: React.ReactNode;
 }
 
 // Governance Types
@@ -89,17 +141,18 @@ export interface User {
   email: string;
   name: string;
   role: UserRole;
-  tenantId: string; // Creates the link to data
+  tenantId: string;
 }
 
+// The "Hydrated" Tenant object used by the frontend
 export interface Tenant {
   id: string;
-  name: string; // Organization Name
+  name: string;
   plan: 'Free' | 'Pro' | 'Enterprise';
   status: 'Active' | 'Inactive';
   createdAt: string;
   ownerEmail: string;
-  // Data Store for this tenant
+  // Relationships
   clinics: Clinic[];
   systems: SystemTool[];
   employees: Employee[];
@@ -108,5 +161,5 @@ export interface Tenant {
 
 export interface AppState {
   currentUser: User | null;
-  tenants: Tenant[]; // In a real app, this would be in DB. Here we store all mock data.
+  tenants: Tenant[];
 }

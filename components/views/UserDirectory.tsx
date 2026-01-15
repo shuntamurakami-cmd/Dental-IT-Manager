@@ -191,11 +191,12 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ clinics, systems, employe
                         {person.joinDate}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button 
+                         <button 
                           onClick={() => openEditModal(person)}
-                          className="text-slate-400 hover:text-slate-600"
+                          className="text-slate-500 hover:text-slate-800 bg-white border border-slate-300 px-3 py-1 rounded shadow-sm flex items-center ml-auto"
                         >
-                          <Pencil size={18} />
+                          <Pencil size={14} className="mr-1" />
+                          編集
                         </button>
                       </td>
                     </tr>

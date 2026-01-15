@@ -61,6 +61,23 @@ export interface NavItem {
   icon: React.ReactNode;
 }
 
+// Governance Types
+export interface NamingRule {
+  rule: string;
+  pattern: string;
+  example: string;
+}
+
+export interface SecurityPolicy {
+  title: string;
+  content: string;
+}
+
+export interface GovernanceConfig {
+  naming: NamingRule[];
+  security: SecurityPolicy[];
+}
+
 // SaaS / Auth Types
 export enum UserRole {
   CLIENT_ADMIN = 'CLIENT_ADMIN',
@@ -86,6 +103,7 @@ export interface Tenant {
   clinics: Clinic[];
   systems: SystemTool[];
   employees: Employee[];
+  governance: GovernanceConfig;
 }
 
 export interface AppState {

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { ExternalLink, AlertCircle, Calendar, User, Server, Plus, X, Search, Pencil } from 'lucide-react';
-import { SystemTool } from '../../types';
+import { SystemTool, Employee } from '../../types';
 
 interface SystemCatalogProps {
   systems: SystemTool[];
+  employees?: Employee[]; // Add employees to calc real-time cost in card
   onAddSystem: (system: SystemTool) => void;
   onUpdateSystem: (system: SystemTool) => void;
 }
@@ -29,7 +30,7 @@ const PRESET_SYSTEMS = [
   { name: 'Talknote', category: '社内SNS', baseMonthlyCost: 0, monthlyCostPerUser: 980, url: 'https://talknote.com' },
 ];
 
-const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem, onUpdateSystem }) => {
+const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, employees = [], onAddSystem, onUpdateSystem }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSystem, setEditingSystem] = useState<SystemTool | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -68,7 +69,7 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem, onU
 
   const openEditModal = (system: SystemTool) => {
     setEditingSystem(system);
-    setSelectedPreset(null); // Editing ignores presets UI usually, or allows overwrite
+    setSelectedPreset(null);
     setFormData({ ...system });
     setIsModalOpen(true);
   };
@@ -149,7 +150,11 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem, onU
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {systems.map((sys) => (
+          {systems.map((sys) => {
+            const assignedCount = employees.filter(e => e.assignedSystems.includes(sys.id)).length;
+            const currentTotal = sys.baseMonthlyCost + (sys.monthlyCostPerUser * assignedCount);
+
+            return (
             <div key={sys.id} className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col group">
               <div className="p-6 flex-1">
                 <div className="flex justify-between items-start mb-4">
@@ -169,15 +174,17 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem, onU
                   </span>
                 </div>
 
+                <div className="bg-slate-50 rounded-lg p-3 mb-4">
+                   <div className="text-xs text-slate-500 mb-1">現在の月額コスト合計</div>
+                   <div className="text-lg font-bold text-slate-900">¥{currentTotal.toLocaleString()}</div>
+                   <div className="text-xs text-slate-400 mt-1 flex flex-wrap gap-1">
+                      <span>基本 ¥{sys.baseMonthlyCost.toLocaleString()}</span>
+                      <span>+</span>
+                      <span>(¥{sys.monthlyCostPerUser.toLocaleString()} × {assignedCount}名)</span>
+                   </div>
+                </div>
+
                 <div className="space-y-3 text-sm">
-                  <div className="flex justify-between py-1 border-b border-slate-100">
-                    <span className="text-slate-500">月額コスト</span>
-                    <span className="font-medium">
-                      {sys.baseMonthlyCost > 0 
-                        ? `基本 ¥${sys.baseMonthlyCost.toLocaleString()}` 
-                        : `1名 ¥${sys.monthlyCostPerUser.toLocaleString()}`}
-                    </span>
-                  </div>
                   <div className="flex justify-between py-1 border-b border-slate-100">
                     <span className="text-slate-500 flex items-center"><User size={14} className="mr-1"/>管理者</span>
                     <span>{sys.adminOwner}</span>
@@ -213,14 +220,15 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem, onU
                 </a>
                 <button 
                   onClick={() => openEditModal(sys)}
-                  className="text-sm text-slate-500 hover:text-slate-800 flex items-center"
+                  className="text-sm text-slate-600 hover:text-slate-900 font-medium flex items-center bg-white border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm hover:shadow transition-all"
                 >
-                  <Pencil size={14} className="mr-1" />
+                  <Pencil size={14} className="mr-1.5" />
                   編集
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -305,11 +313,15 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem, onU
                   {/* Cost Logic Section */}
                   <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                     <p className="text-xs text-slate-500 mb-3">
-                      <strong>コスト設定について:</strong> 利用者数に関わらず発生する「固定費用」と、1名ごとの「従量費用」を設定できます。アカウント付与数に応じて自動計算されます。
+                      <strong>コスト設定について:</strong><br/>
+                      アカウントを付与すると、以下の計算式で自動集計されます。
                     </p>
+                    <div className="flex items-center text-sm font-bold text-slate-700 mb-3 bg-white p-2 rounded border border-slate-200 justify-center">
+                      基本料金 + (単価 × 人数) = 合計
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">基本月額 (固定)</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">基本料金 (固定)</label>
                         <div className="relative">
                           <span className="absolute left-3 top-2 text-slate-500">¥</span>
                           <input 
@@ -322,7 +334,7 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, onAddSystem, onU
                         </div>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">1名あたり月額</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">1名あたりの単価</label>
                         <div className="relative">
                           <span className="absolute left-3 top-2 text-slate-500">¥</span>
                           <input 

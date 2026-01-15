@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './components/views/Dashboard';
 import ClinicManagement from './components/views/ClinicManagement';
@@ -8,38 +8,10 @@ import CostAnalysis from './components/views/CostAnalysis';
 import Governance from './components/views/Governance';
 import Auth from './components/Auth';
 import SuperAdminDashboard from './components/views/SuperAdminDashboard';
-import { Upload, RotateCcw, Download, FileJson } from 'lucide-react';
-import { AppState, Tenant, User, UserRole, Clinic, SystemTool, Employee } from './types';
-import { CLINICS, EMPLOYEES, SYSTEMS } from './constants';
-
-// Initial Mock Data Seeding
-const DEMO_TENANT_ID = 'tenant_demo_001';
-const INITIAL_TENANTS: Tenant[] = [
-  {
-    id: DEMO_TENANT_ID,
-    name: 'ホワイトデンタルクリニック',
-    plan: 'Pro',
-    status: 'Active',
-    createdAt: '2023-04-01',
-    ownerEmail: 'demo@whitedental.jp',
-    clinics: CLINICS,
-    systems: SYSTEMS,
-    employees: EMPLOYEES
-  },
-  {
-    id: 'tenant_sample_002',
-    name: 'スマイル矯正歯科',
-    plan: 'Enterprise',
-    status: 'Active',
-    createdAt: '2024-01-15',
-    ownerEmail: 'admin@smile-ortho.jp',
-    clinics: [
-      { id: 'c_s_1', name: 'スマイル矯正歯科 渋谷', type: '本院' as any, address: '東京都渋谷区', chairs: 12, phone: '03-9999-8888' }
-    ],
-    systems: [SYSTEMS[0]], // Only Google Workspace
-    employees: [EMPLOYEES[0], EMPLOYEES[1]] // Just a few
-  }
-];
+import { Upload, RotateCcw, Download, FileJson, Cloud, Loader2 } from 'lucide-react';
+import { AppState, Tenant, User, UserRole, Clinic, SystemTool, Employee, GovernanceConfig } from './types';
+import { db } from './services/db';
+import { GOVERNANCE_RULES } from './constants';
 
 const App: React.FC = () => {
   // --- Global State ---
@@ -49,22 +21,39 @@ const App: React.FC = () => {
   // Auth & Data State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   
-  // Initialize Tenants from LocalStorage if available
-  const [tenants, setTenants] = useState<Tenant[]>(() => {
-    try {
-      const savedData = localStorage.getItem('dental_it_manager_data');
-      if (savedData) {
-        return JSON.parse(savedData);
-      }
-    } catch (e) {
-      console.error('Failed to load local data', e);
-    }
-    return INITIAL_TENANTS;
-  });
+  // Data State
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Save to LocalStorage whenever tenants change
+  // Load data on mount
   useEffect(() => {
-    localStorage.setItem('dental_it_manager_data', JSON.stringify(tenants));
+    const loadData = async () => {
+      setIsLoading(true);
+      const data = await db.getTenants();
+      setTenants(data);
+      setIsLoading(false);
+    };
+    loadData();
+  }, []);
+
+  // Save to DB Service whenever tenants change (Debounced)
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    const save = async () => {
+      setIsSaving(true);
+      await db.saveTenants(tenants);
+      setIsSaving(false);
+    };
+
+    // Simple debounce to prevent too many API calls
+    const timeoutId = setTimeout(save, 1000);
+    return () => clearTimeout(timeoutId);
   }, [tenants]);
 
   // Derived state for current tenant data
@@ -91,7 +80,7 @@ const App: React.FC = () => {
         email,
         name: '管理者 アカウント',
         role: UserRole.CLIENT_ADMIN,
-        tenantId: DEMO_TENANT_ID
+        tenantId: 'tenant_demo_001'
       });
       return true;
     }
@@ -124,10 +113,11 @@ const App: React.FC = () => {
       ownerEmail: email,
       clinics: [],
       systems: [],
-      employees: []
+      employees: [],
+      governance: GOVERNANCE_RULES // Initialize with default rules
     };
 
-    setTenants([...tenants, newTenant]);
+    setTenants(prev => [...prev, newTenant]);
     
     setCurrentUser({
       id: `user_${newTenantId}`,
@@ -145,10 +135,12 @@ const App: React.FC = () => {
     setActiveTab('dashboard');
   };
 
-  const resetData = () => {
+  const resetData = async () => {
     if (confirm('現在のデータを全て削除し、初期デモデータに戻しますか？この操作は取り消せません。')) {
-      localStorage.removeItem('dental_it_manager_data');
-      setTenants(INITIAL_TENANTS);
+      setIsLoading(true);
+      const initial = await db.reset();
+      setTenants(initial);
+      setIsLoading(false);
       alert('データをリセットしました。');
     }
   };
@@ -261,7 +253,31 @@ const App: React.FC = () => {
     }));
   };
 
+  // Governance
+  const handleUpdateGovernance = (newGovernance: GovernanceConfig) => {
+    if (!currentUser || !currentTenant) return;
+    setTenants(prev => prev.map(t => {
+      if (t.id === currentTenant.id) {
+        return { 
+          ...t, 
+          governance: newGovernance
+        };
+      }
+      return t;
+    }));
+  };
+
   // --- Rendering ---
+  
+  if (isLoading && tenants.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
+         <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
+         <p className="text-slate-600 font-medium">データを読み込み中...</p>
+         <p className="text-xs text-slate-400 mt-2">Connecting to Supabase...</p>
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return <Auth onLogin={login} onSignup={signup} />;
@@ -291,6 +307,7 @@ const App: React.FC = () => {
         return (
           <SystemCatalog 
             systems={currentTenant.systems} 
+            employees={currentTenant.employees}
             onAddSystem={handleAddSystem} 
             onUpdateSystem={handleUpdateSystem}
           />
@@ -308,7 +325,12 @@ const App: React.FC = () => {
       case 'costs':
         return <CostAnalysis systems={currentTenant.systems} employees={currentTenant.employees} />;
       case 'governance':
-        return <Governance />;
+        return (
+          <Governance 
+            governance={currentTenant.governance || GOVERNANCE_RULES}
+            onUpdate={handleUpdateGovernance}
+          />
+        );
       default:
         return <Dashboard clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} />;
     }
@@ -321,31 +343,39 @@ const App: React.FC = () => {
       user={currentUser}
       onLogout={logout}
     >
-      <div className="mb-4 flex flex-wrap justify-end gap-2">
-         <button 
-           onClick={resetData}
-           className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
-           title="データを初期状態に戻す"
-         >
-           <RotateCcw size={14} className="mr-1.5" />
-           リセット
-         </button>
-         <button 
-           onClick={handleExport}
-           className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-           title="現在のデータをファイルに保存"
-         >
-           <Download size={14} className="mr-1.5" />
-           バックアップ保存
-         </button>
-         <button 
-           onClick={() => setShowImportModal(true)}
-           className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
-           title="バックアップファイルから復元"
-         >
-           <Upload size={14} className="mr-1.5" />
-           データ復元
-         </button>
+      <div className="mb-4 flex flex-col md:flex-row justify-between items-end md:items-center gap-2">
+         <div className="flex items-center space-x-2">
+            <div className={`flex items-center text-xs px-3 py-1.5 rounded-full transition-colors ${isSaving ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                {isSaving ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Cloud size={14} className="mr-1.5" />}
+                <span>{isSaving ? 'Saving to Supabase...' : 'Supabase Connected'}</span>
+            </div>
+         </div>
+         <div className="flex space-x-2">
+            <button 
+              onClick={resetData}
+              className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
+              title="データを初期状態に戻す"
+            >
+              <RotateCcw size={14} className="mr-1.5" />
+              リセット
+            </button>
+            <button 
+              onClick={handleExport}
+              className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+              title="現在のデータをファイルに保存"
+            >
+              <Download size={14} className="mr-1.5" />
+              保存
+            </button>
+            <button 
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+              title="バックアップファイルから復元"
+            >
+              <Upload size={14} className="mr-1.5" />
+              復元
+            </button>
+         </div>
       </div>
 
       {renderContent()}

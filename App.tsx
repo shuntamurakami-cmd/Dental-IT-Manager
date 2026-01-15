@@ -8,7 +8,7 @@ import CostAnalysis from './components/views/CostAnalysis';
 import Governance from './components/views/Governance';
 import Auth from './components/Auth';
 import SuperAdminDashboard from './components/views/SuperAdminDashboard';
-import { Upload, RotateCcw } from 'lucide-react';
+import { Upload, RotateCcw, Download, FileJson } from 'lucide-react';
 import { AppState, Tenant, User, UserRole, Clinic, SystemTool, Employee } from './types';
 import { CLINICS, EMPLOYEES, SYSTEMS } from './constants';
 
@@ -153,6 +153,46 @@ const App: React.FC = () => {
     }
   };
 
+  // --- Backup & Restore Actions ---
+  const handleExport = () => {
+    const dataStr = JSON.stringify(tenants, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `dental_it_manager_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const json = e.target?.result as string;
+        const parsedData = JSON.parse(json);
+        // Simple validation check
+        if (Array.isArray(parsedData) && parsedData.length > 0 && parsedData[0].id) {
+          if (confirm('現在のデータを上書きして、バックアップデータを復元しますか？\n（現在の未保存データは失われます）')) {
+            setTenants(parsedData);
+            setShowImportModal(false);
+            alert('データの復元が完了しました。');
+          }
+        } else {
+          alert('無効なデータ形式です。Dental IT Managerのバックアップファイルを選択してください。');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('ファイルの読み込みに失敗しました。');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   // --- Data Mutation Actions (Create & Update) ---
   
   // Clinics
@@ -281,40 +321,55 @@ const App: React.FC = () => {
       user={currentUser}
       onLogout={logout}
     >
-      <div className="mb-4 flex justify-end space-x-3">
+      <div className="mb-4 flex flex-wrap justify-end gap-2">
          <button 
            onClick={resetData}
-           className="flex items-center text-xs text-slate-400 hover:text-red-600 transition-colors"
+           className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
            title="データを初期状態に戻す"
          >
-           <RotateCcw size={14} className="mr-1" />
-           データリセット
+           <RotateCcw size={14} className="mr-1.5" />
+           リセット
+         </button>
+         <button 
+           onClick={handleExport}
+           className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+           title="現在のデータをファイルに保存"
+         >
+           <Download size={14} className="mr-1.5" />
+           バックアップ保存
          </button>
          <button 
            onClick={() => setShowImportModal(true)}
-           className="flex items-center text-xs text-slate-500 hover:text-blue-600 transition-colors"
+           className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+           title="バックアップファイルから復元"
          >
-           <Upload size={14} className="mr-1" />
-           既存データ(CSV)をインポート
+           <Upload size={14} className="mr-1.5" />
+           データ復元
          </button>
       </div>
 
       {renderContent()}
 
-      {/* Import Modal Simulation */}
+      {/* Import Modal */}
       {showImportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
-            <h3 className="text-lg font-bold text-slate-900 mb-2">データインポート</h3>
+            <h3 className="text-lg font-bold text-slate-900 mb-2">データ復元（インポート）</h3>
             <p className="text-sm text-slate-600 mb-6">
-              現在管理しているスプレッドシートやCSVファイルをアップロードして、
-              初期データを構築します。
+              以前保存したバックアップファイル（.json）を選択してください。<br/>
+              <span className="text-red-500 font-bold">※現在のデータは上書きされます。</span>
             </p>
             
-            <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
-              <Upload className="mx-auto h-10 w-10 text-slate-400" />
-              <p className="mt-2 text-sm text-slate-500">クリックしてファイルを選択</p>
-            </div>
+            <label className="block w-full border-2 border-dashed border-slate-300 rounded-lg p-8 text-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
+              <input 
+                type="file" 
+                accept=".json"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+              <FileJson className="mx-auto h-10 w-10 text-slate-400" />
+              <p className="mt-2 text-sm text-slate-500">クリックしてJSONファイルを選択</p>
+            </label>
 
             <div className="mt-6 flex justify-end space-x-3">
               <button 
@@ -322,15 +377,6 @@ const App: React.FC = () => {
                 className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm font-medium"
               >
                 キャンセル
-              </button>
-              <button 
-                onClick={() => {
-                  alert('デモ環境のため、実際のインポートはスキップされました。');
-                  setShowImportModal(false);
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-              >
-                インポート実行
               </button>
             </div>
           </div>

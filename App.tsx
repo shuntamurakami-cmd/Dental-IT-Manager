@@ -9,7 +9,7 @@ import Governance from './components/views/Governance';
 import Auth from './components/Auth';
 import SuperAdminDashboard from './components/views/SuperAdminDashboard';
 import { Upload, RotateCcw, Download, FileJson, Cloud, Loader2 } from 'lucide-react';
-import { AppState, Tenant, User, UserRole, Clinic, SystemTool, Employee, GovernanceConfig } from './types';
+import { AppState, Tenant, User, UserRole, Clinic, SystemTool, Employee, GovernanceConfig, ClinicType, StaffRole, EmploymentType } from './types';
 import { db } from './services/db';
 import { GOVERNANCE_RULES } from './constants';
 
@@ -104,6 +104,31 @@ const App: React.FC = () => {
     await new Promise(resolve => setTimeout(resolve, 800));
 
     const newTenantId = `tenant_${Date.now()}`;
+    
+    // 1. Create Default Clinic (HQ)
+    const defaultClinic: Clinic = {
+      id: `c_${Date.now()}_hq`,
+      name: `${company} 本院`,
+      type: ClinicType.HQ,
+      address: '',
+      phone: '',
+      chairs: 0
+    };
+
+    // 2. Create Admin Employee Record
+    const adminEmployee: Employee = {
+      id: `e_${Date.now()}_admin`,
+      firstName: '管理者',
+      lastName: '（初期）',
+      clinicId: defaultClinic.id,
+      role: StaffRole.SYSADMIN,
+      employmentType: EmploymentType.FULL_TIME,
+      email: email,
+      joinDate: new Date().toISOString().split('T')[0],
+      assignedSystems: [],
+      status: 'Active'
+    };
+
     const newTenant: Tenant = {
       id: newTenantId,
       name: company,
@@ -111,10 +136,10 @@ const App: React.FC = () => {
       status: 'Active',
       createdAt: new Date().toISOString().split('T')[0],
       ownerEmail: email,
-      clinics: [],
+      clinics: [defaultClinic],
       systems: [],
-      employees: [],
-      governance: GOVERNANCE_RULES // Initialize with default rules
+      employees: [adminEmployee],
+      governance: GOVERNANCE_RULES
     };
 
     setTenants(prev => [...prev, newTenant]);

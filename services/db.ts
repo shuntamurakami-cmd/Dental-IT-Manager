@@ -1,8 +1,9 @@
+
 import { Tenant, Clinic, SystemTool, Employee, GovernanceConfig, StaffRole, EmploymentType, ClinicType } from '../types';
 import { supabase } from './supabase';
 
 /**
- * Data Mappers: Convert between DB (snake_case) and Frontend (camelCase)
+ * Data Mappers
  */
 const mapDBToClinic = (row: any): Clinic => ({
   id: row.id,
@@ -22,9 +23,11 @@ const mapDBToSystem = (row: any): SystemTool => ({
   baseMonthlyCost: row.base_monthly_cost || 0,
   renewalDate: row.renewal_date || '',
   adminOwner: row.admin_owner || '',
+  // Fix: Removed 'vendor_contact' property which does not exist on SystemTool interface
   vendorContact: row.vendor_contact || '',
   status: row.status as any,
-  issues: row.issues || []
+  issues: row.issues || [],
+  contractUrl: row.contract_url || undefined
 });
 
 const mapDBToEmployee = (row: any, assignedSystems: string[]): Employee => ({
@@ -41,16 +44,13 @@ const mapDBToEmployee = (row: any, assignedSystems: string[]): Employee => ({
 });
 
 export const db = {
-  // Load all data (Hydrate)
   getTenants: async (): Promise<Tenant[]> => {
-    // 1. Fetch Tenants
     const { data: dbTenants, error: tError } = await supabase.from('tenants').select('*');
     if (tError) throw tError;
 
     const tenants: Tenant[] = [];
 
     for (const t of dbTenants) {
-      // 2. Fetch related data for each tenant
       const [
         { data: dbClinics },
         { data: dbSystems },
@@ -90,8 +90,6 @@ export const db = {
     return tenants;
   },
 
-  // --- Specific Mutations ---
-
   upsertTenant: async (tenantId: string, data: Partial<Tenant>) => {
     const dbData: any = {};
     if (data.name) dbData.name = data.name;
@@ -127,12 +125,30 @@ export const db = {
       renewal_date: system.renewalDate,
       admin_owner: system.adminOwner,
       vendor_contact: system.vendorContact,
-      issues: system.issues
+      issues: system.issues,
+      contract_url: system.contractUrl || null
     });
   },
 
+  uploadSystemFile: async (file: File): Promise<string> => {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random()}.${fileExt}`;
+    const filePath = `contracts/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('system-assets')
+      .upload(filePath, file);
+
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage
+      .from('system-assets')
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  },
+
   upsertEmployee: async (tenantId: string, employee: Employee) => {
-    // 1. Update basic info
     const { error: empError } = await supabase.from('employees').upsert({
       id: employee.id,
       tenant_id: tenantId,
@@ -148,7 +164,6 @@ export const db = {
 
     if (empError) throw empError;
 
-    // 2. Update assignments (Delete then Insert)
     await supabase.from('employee_assigned_systems').delete().eq('employee_id', employee.id);
     if (employee.assignedSystems.length > 0) {
       const assignments = employee.assignedSystems.map(sysId => ({
@@ -159,10 +174,5 @@ export const db = {
     }
   },
 
-  // Initial dummy reset not supported in relational mode for security, 
-  // but we can provide a method to re-insert demo data if needed.
-  reset: async () => {
-    console.warn("Reset method not fully implemented for relational mode. Please use SQL Editor.");
-    return [];
-  }
+  reset: async () => []
 };

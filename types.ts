@@ -35,7 +35,8 @@ export interface DBT_System {
   renewal_date: string;
   admin_owner: string;
   vendor_contact: string;
-  issues: string[]; // text array
+  issues: string[]; 
+  contract_url?: string; // NEW
 }
 
 export interface DBT_Employee {
@@ -72,11 +73,6 @@ export enum EmploymentType {
   PART_TIME = '非常勤',
 }
 
-// Domain Model matches DBT but with CamelCase for frontend consistency if needed,
-// but for simplicity, we map DB snake_case to these interfaces.
-// Currently keeping the existing interface structure to minimize breaking changes in components,
-// but eventually these should map to the DB columns.
-
 export interface Clinic {
   id: string;
   name: string;
@@ -91,25 +87,26 @@ export interface SystemTool {
   name: string;
   category: string;
   url: string;
-  monthlyCostPerUser: number; // Mapped from monthly_cost_per_user
-  baseMonthlyCost: number;    // Mapped from base_monthly_cost
-  renewalDate: string;        // Mapped from renewal_date
-  adminOwner: string;         // Mapped from admin_owner
-  vendorContact: string;      // Mapped from vendor_contact
+  monthlyCostPerUser: number;
+  baseMonthlyCost: number;
+  renewalDate: string;
+  adminOwner: string;
+  vendorContact: string;
   status: 'Active' | 'Review' | 'Canceling';
   issues: string[];
+  contractUrl?: string; // NEW
 }
 
 export interface Employee {
   id: string;
-  firstName: string; // Mapped from first_name
-  lastName: string;  // Mapped from last_name
-  clinicId: string;  // Mapped from clinic_id
+  firstName: string;
+  lastName: string;
+  clinicId: string;
   role: StaffRole;
-  employmentType: EmploymentType; // Mapped from employment_type
+  employmentType: EmploymentType;
   email: string;
-  joinDate: string;  // Mapped from join_date
-  assignedSystems: string[]; // This now comes from a join query
+  joinDate: string;
+  assignedSystems: string[];
   status: 'Active' | 'Onboarding' | 'Offboarding';
 }
 
@@ -125,9 +122,16 @@ export interface SecurityPolicy {
   content: string;
 }
 
+export interface ManualLink {
+  title: string;
+  url: string;
+  updatedAt: string;
+}
+
 export interface GovernanceConfig {
   naming: NamingRule[];
   security: SecurityPolicy[];
+  manuals?: ManualLink[]; // NEW
 }
 
 // SaaS / Auth Types
@@ -144,7 +148,6 @@ export interface User {
   tenantId: string;
 }
 
-// The "Hydrated" Tenant object used by the frontend
 export interface Tenant {
   id: string;
   name: string;
@@ -152,7 +155,6 @@ export interface Tenant {
   status: 'Active' | 'Inactive';
   createdAt: string;
   ownerEmail: string;
-  // Relationships
   clinics: Clinic[];
   systems: SystemTool[];
   employees: Employee[];

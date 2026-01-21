@@ -50,6 +50,8 @@ export interface DBT_Employee {
   employment_type: string;
   status: string;
   join_date: string;
+  account_type?: string; // NEW
+  managed_password?: string; // NEW
 }
 
 // --- Application Domain Types (Frontend Use) ---
@@ -108,6 +110,8 @@ export interface Employee {
   joinDate: string;
   assignedSystems: string[];
   status: 'Active' | 'Onboarding' | 'Offboarding';
+  accountType: 'Google Workspace' | 'Google (Free)' | 'Other'; // NEW
+  managedPassword?: string; // NEW
 }
 
 // Governance Types

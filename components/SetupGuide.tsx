@@ -1,10 +1,26 @@
-import React from 'react';
-import { Database, Copy, Check, Terminal } from 'lucide-react';
+import React, { useState } from 'react';
+import { Database, Copy, Check, Terminal, RefreshCw, ArrowRightLeft } from 'lucide-react';
 
 export const SetupGuide: React.FC = () => {
-  const [copied, setCopied] = React.useState(false);
+  const [copied, setCopied] = useState(false);
+  const [mode, setMode] = useState<'migration' | 'reset'>('migration');
 
-  const sqlCode = `
+  const migrationSqlCode = `
+-- 既存のテーブルにカラムを追加（データは保持されます）
+
+-- account_typeカラムを追加 (デフォルト: Google Workspace)
+alter table public.employees 
+add column if not exists account_type text default 'Google Workspace';
+
+-- managed_passwordカラムを追加
+alter table public.employees 
+add column if not exists managed_password text;
+
+-- 念のため権限を再適用
+grant all on public.employees to anon, authenticated, service_role;
+`.trim();
+
+  const resetSqlCode = `
 -- 既存のテーブルがある場合は削除（開発用）
 drop table if exists public.employee_assigned_systems;
 drop table if exists public.employees;
@@ -52,6 +68,7 @@ create table public.systems (
 );
 
 -- 従業員テーブル (ON DELETE CASCADE追加)
+-- account_type, managed_passwordを追加
 create table public.employees (
   id text primary key,
   tenant_id text references public.tenants(id) on delete cascade,
@@ -62,7 +79,9 @@ create table public.employees (
   role text,
   employment_type text,
   status text,
-  join_date text
+  join_date text,
+  account_type text default 'Google Workspace',
+  managed_password text
 );
 
 -- 従業員とシステムの中間テーブル (ON DELETE CASCADE追加)
@@ -72,7 +91,7 @@ create table public.employee_assigned_systems (
   system_id text references public.systems(id) on delete cascade
 );
 
--- ストレージバケットの作成（存在しない場合のみエラー無視などで対応が必要だが、SQLエディタで実行前提）
+-- ストレージバケットの作成
 insert into storage.buckets (id, name, public) values ('system-assets', 'system-assets', true)
 on conflict (id) do nothing;
 
@@ -93,8 +112,10 @@ alter table public.employee_assigned_systems enable row level security;
 create policy "Public Access" on public.employee_assigned_systems for all using (true);
 `.trim();
 
+  const activeCode = mode === 'migration' ? migrationSqlCode : resetSqlCode;
+
   const handleCopy = () => {
-    navigator.clipboard.writeText(sqlCode);
+    navigator.clipboard.writeText(activeCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -103,21 +124,45 @@ create policy "Public Access" on public.employee_assigned_systems for all using 
     <div className="min-h-screen bg-slate-900 text-white p-8 flex flex-col items-center justify-center">
       <div className="max-w-4xl w-full">
         <div className="flex items-center gap-3 mb-6">
-          <Database className="text-red-500 w-8 h-8" />
-          <h1 className="text-2xl font-bold">データベースの再構築を推奨します</h1>
+          <Database className="text-blue-500 w-8 h-8" />
+          <h1 className="text-2xl font-bold">データベースの更新が必要です</h1>
         </div>
         
         <p className="text-slate-300 mb-8 text-lg">
-          データの削除機能や整合性を保つため、テーブル定義（SQL）を更新しました。<br/>
-          お手数ですが、以下のSQLをSupabaseの <span className="font-mono bg-slate-800 px-2 py-1 rounded">SQL Editor</span> で実行し、テーブルを作り直してください。<br/>
-          <span className="text-red-400 font-bold text-sm">※既存のデータはすべてリセットされます。</span>
+          新しい機能（アカウント種別・パスワード管理）を利用するには、Supabase側でテーブル定義の更新が必要です。<br/>
+          以下のSQLをSupabaseの <span className="font-mono bg-slate-800 px-2 py-1 rounded">SQL Editor</span> で実行してください。
         </p>
 
-        <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden shadow-2xl">
+        <div className="flex space-x-4 mb-4">
+          <button 
+            onClick={() => setMode('migration')}
+            className={`flex items-center px-4 py-2 rounded-lg font-bold transition-all ${
+              mode === 'migration' 
+                ? 'bg-blue-600 text-white ring-2 ring-blue-400 ring-offset-2 ring-offset-slate-900' 
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+            }`}
+          >
+            <ArrowRightLeft size={16} className="mr-2" />
+            データ保持更新 (推奨)
+          </button>
+          <button 
+            onClick={() => setMode('reset')}
+            className={`flex items-center px-4 py-2 rounded-lg font-bold transition-all ${
+              mode === 'reset' 
+                ? 'bg-red-600 text-white ring-2 ring-red-400 ring-offset-2 ring-offset-slate-900' 
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+            }`}
+          >
+            <RefreshCw size={16} className="mr-2" />
+            完全リセット
+          </button>
+        </div>
+
+        <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden shadow-2xl relative">
           <div className="flex justify-between items-center px-4 py-3 bg-slate-900 border-b border-slate-800">
             <div className="flex items-center gap-2 text-sm text-slate-400">
               <Terminal size={16} />
-              <span>setup_v2.sql</span>
+              <span>{mode === 'migration' ? 'migration_v1.sql' : 'setup_full.sql'}</span>
             </div>
             <button 
               onClick={handleCopy}
@@ -129,12 +174,21 @@ create policy "Public Access" on public.employee_assigned_systems for all using 
               {copied ? 'コピーしました' : 'SQLをコピー'}
             </button>
           </div>
-          <pre className="p-4 overflow-x-auto text-sm font-mono leading-relaxed text-blue-300 max-h-96">
-            <code>{sqlCode}</code>
-          </pre>
+          
+          <div className="relative">
+            <pre className="p-4 overflow-x-auto text-sm font-mono leading-relaxed text-blue-300 max-h-96">
+              <code>{activeCode}</code>
+            </pre>
+            {mode === 'reset' && (
+              <div className="absolute top-4 right-4 bg-red-500/10 border border-red-500/50 text-red-500 px-3 py-1 rounded text-xs font-bold">
+                ⚠️ 全データが削除されます
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="mt-8 text-center">
+          <p className="text-slate-400 text-sm mb-4">SQLの実行が完了したら、再読み込みしてください</p>
           <button 
             onClick={() => window.location.reload()} 
             className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors"

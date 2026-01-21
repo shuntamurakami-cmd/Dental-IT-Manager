@@ -187,7 +187,8 @@ const AppContent: React.FC = () => {
           email: email,
           joinDate: new Date().toISOString().split('T')[0],
           assignedSystems: [],
-          status: 'Active'
+          status: 'Active',
+          accountType: 'Google Workspace'
         };
         await db.upsertEmployee(inviteTenantId, newEmployee);
         notify('success', '組織に参加しました');
@@ -214,7 +215,8 @@ const AppContent: React.FC = () => {
           email: email,
           joinDate: new Date().toISOString().split('T')[0],
           assignedSystems: [],
-          status: 'Active'
+          status: 'Active',
+          accountType: 'Google Workspace'
         };
 
         await db.upsertTenant(newTenantId, {

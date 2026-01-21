@@ -38,7 +38,9 @@ const mapDBToEmployee = (row: any, assignedSystems: string[]): Employee => ({
   email: row.email || '',
   joinDate: row.join_date || '',
   assignedSystems: assignedSystems,
-  status: row.status as any
+  status: row.status as any,
+  accountType: row.account_type || 'Google Workspace',
+  managedPassword: row.managed_password || ''
 });
 
 export const db = {
@@ -258,7 +260,7 @@ export const db = {
   },
 
   upsertEmployee: async (tenantId: string, employee: Employee) => {
-    const { error: empError } = await supabase.from('employees').upsert({
+    const empData: any = {
       id: employee.id,
       tenant_id: tenantId,
       clinic_id: employee.clinicId || null,
@@ -268,10 +270,26 @@ export const db = {
       role: employee.role,
       employment_type: employee.employmentType,
       status: employee.status,
-      join_date: employee.joinDate
-    });
+      join_date: employee.joinDate,
+      account_type: employee.accountType,
+      managed_password: employee.managedPassword
+    };
 
-    if (empError) throw empError;
+    const { error: empError } = await supabase.from('employees').upsert(empData);
+
+    if (empError) {
+      // Fallback: If migration hasn't run yet, 'account_type' or 'managed_password' column might be missing.
+      // Error code 42703 is undefined_column in Postgres
+      if (empError.code === '42703' || empError.message.includes('column')) {
+        console.warn('DB Migration missing: Retrying upsert without new columns...');
+        delete empData.account_type;
+        delete empData.managed_password;
+        const { error: retryError } = await supabase.from('employees').upsert(empData);
+        if (retryError) throw retryError;
+      } else {
+        throw empError;
+      }
+    }
 
     await supabase.from('employee_assigned_systems').delete().eq('employee_id', employee.id);
     if (employee.assignedSystems.length > 0) {

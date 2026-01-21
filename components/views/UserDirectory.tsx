@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, UserPlus, X, Pencil, Download, Mail, Copy, Check, Settings, Plus, Trash2, Server } from 'lucide-react';
+import { Search, UserPlus, X, Pencil, Download, Mail, Copy, Check, Settings, Plus, Trash2, Server, Eye, EyeOff, KeyRound } from 'lucide-react';
 import { Clinic, Employee, SystemTool, StaffRole, EmploymentType, GovernanceConfig } from '../../types';
 import { useNotification } from '../../contexts/NotificationContext';
 import { DEFAULT_ROLES } from '../../constants';
@@ -22,6 +22,7 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ tenantId, clinics, system
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isRoleManagerOpen, setIsRoleManagerOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   
   const { notify } = useNotification();
   
@@ -38,18 +39,21 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ tenantId, clinics, system
     role: availableRoles[0],
     employmentType: EmploymentType.FULL_TIME,
     joinDate: new Date().toISOString().split('T')[0],
-    assignedSystems: [] as string[]
+    assignedSystems: [] as string[],
+    accountType: 'Google Workspace' as 'Google Workspace' | 'Google (Free)' | 'Other',
+    managedPassword: ''
   });
 
   // CSV Export
   const handleExportCSV = () => {
-    const headers = ['姓', '名', 'メール', '所属医院', '職種', '雇用形態', '入社日', '利用システム数'];
+    const headers = ['姓', '名', 'メール', 'アカウント種別', '所属医院', '職種', '雇用形態', '入社日', '利用システム数'];
     const rows = employees.map(e => {
       const clinicName = clinics.find(c => c.id === e.clinicId)?.name || '';
       return [
         e.lastName,
         e.firstName,
         e.email,
+        e.accountType || 'Google Workspace',
         clinicName,
         e.role,
         e.employmentType,
@@ -86,8 +90,11 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ tenantId, clinics, system
       role: availableRoles[0],
       employmentType: EmploymentType.FULL_TIME,
       joinDate: new Date().toISOString().split('T')[0],
-      assignedSystems: []
+      assignedSystems: [],
+      accountType: 'Google Workspace',
+      managedPassword: ''
     });
+    setShowPassword(false);
     setIsModalOpen(true);
   };
 
@@ -101,8 +108,11 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ tenantId, clinics, system
       role: employee.role,
       employmentType: employee.employmentType,
       joinDate: employee.joinDate,
-      assignedSystems: employee.assignedSystems
+      assignedSystems: employee.assignedSystems,
+      accountType: employee.accountType || 'Google Workspace',
+      managedPassword: employee.managedPassword || ''
     });
+    setShowPassword(false);
     setIsModalOpen(true);
   };
 
@@ -183,6 +193,8 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ tenantId, clinics, system
             <tbody className="bg-white divide-y divide-slate-200">
               {filteredEmployees.map((person) => {
                 const clinicName = clinics.find(c => c.id === person.clinicId)?.name || '不明';
+                const accountType = person.accountType || 'Google Workspace';
+                
                 return (
                   <tr key={person.id} className="hover:bg-slate-50">
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -190,7 +202,22 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ tenantId, clinics, system
                         <div className="h-10 w-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold">{person.lastName[0]}</div>
                         <div className="ml-4">
                           <div className="text-sm font-medium text-slate-900">{person.lastName} {person.firstName}</div>
-                          <div className="text-sm text-slate-500">{person.email}</div>
+                          <div className="flex items-center gap-2">
+                             <div className="text-sm text-slate-500">{person.email}</div>
+                             {accountType === 'Google (Free)' && (
+                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                 Free
+                               </span>
+                             )}
+                             {accountType === 'Google Workspace' && (
+                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
+                                 WS
+                               </span>
+                             )}
+                             {person.managedPassword && (
+                               <KeyRound size={12} className="text-amber-500" title="パスワード管理中" />
+                             )}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -246,9 +273,54 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ tenantId, clinics, system
                 </div>
                </div>
                
-               <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">メールアドレス</label>
-                  <input type="email" placeholder="hanako@example.jp" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500" />
+               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <h4 className="text-sm font-bold text-slate-700 mb-3">Googleアカウント情報</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">メールアドレス</label>
+                      <input type="email" placeholder="hanako@example.jp" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500" />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                       <div>
+                         <label className="block text-sm font-medium text-slate-700 mb-1">アカウント種別</label>
+                         <select 
+                           value={formData.accountType} 
+                           onChange={e => setFormData({...formData, accountType: e.target.value as any})}
+                           className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500"
+                         >
+                            <option value="Google Workspace">Google Workspace (有料)</option>
+                            <option value="Google (Free)">Google Free (無料)</option>
+                            <option value="Other">その他</option>
+                         </select>
+                       </div>
+                       
+                       {formData.accountType === 'Google (Free)' && (
+                         <div className="relative">
+                           <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center">
+                             管理パスワード
+                             <span className="ml-2 text-[10px] text-amber-600 bg-amber-50 px-1 rounded">管理用</span>
+                           </label>
+                           <div className="relative">
+                             <input 
+                               type={showPassword ? "text" : "password"} 
+                               value={formData.managedPassword} 
+                               onChange={e => setFormData({...formData, managedPassword: e.target.value})} 
+                               placeholder="パスワードを入力"
+                               className="w-full pl-3 pr-10 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500" 
+                             />
+                             <button 
+                               type="button" 
+                               onClick={() => setShowPassword(!showPassword)}
+                               className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                             >
+                               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                             </button>
+                           </div>
+                         </div>
+                       )}
+                    </div>
+                  </div>
                </div>
 
                <div className="grid grid-cols-2 gap-4">

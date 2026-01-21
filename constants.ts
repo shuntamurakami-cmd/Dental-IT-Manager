@@ -117,6 +117,7 @@ export const EMPLOYEES: Employee[] = [
     joinDate: '2020-04-01',
     assignedSystems: ['s1', 's3'],
     status: 'Active',
+    accountType: 'Google Workspace',
   },
   {
     id: 'e2',
@@ -129,6 +130,7 @@ export const EMPLOYEES: Employee[] = [
     joinDate: '2021-04-01',
     assignedSystems: ['s1', 's3'],
     status: 'Active',
+    accountType: 'Google Workspace',
   },
   {
     id: 'e3',
@@ -141,6 +143,7 @@ export const EMPLOYEES: Employee[] = [
     joinDate: '2022-10-01',
     assignedSystems: ['s1'],
     status: 'Active',
+    accountType: 'Google Workspace',
   },
   {
     id: 'e4',
@@ -153,6 +156,7 @@ export const EMPLOYEES: Employee[] = [
     joinDate: '2023-01-15',
     assignedSystems: ['s1'],
     status: 'Active',
+    accountType: 'Google Workspace',
   },
   {
     id: 'e5',
@@ -165,6 +169,7 @@ export const EMPLOYEES: Employee[] = [
     joinDate: '2019-04-01',
     assignedSystems: ['s1', 's3', 's4'],
     status: 'Active',
+    accountType: 'Google Workspace',
   },
   {
     id: 'e6',
@@ -177,6 +182,7 @@ export const EMPLOYEES: Employee[] = [
     joinDate: '2023-04-01',
     assignedSystems: ['s1', 's3'],
     status: 'Active',
+    accountType: 'Google Workspace',
   },
 ];
 

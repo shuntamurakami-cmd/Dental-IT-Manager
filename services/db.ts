@@ -1,9 +1,8 @@
-
 import { Tenant, Clinic, SystemTool, Employee, GovernanceConfig, StaffRole, EmploymentType, ClinicType } from '../types';
 import { supabase } from './supabase';
 
 /**
- * Data Mappers
+ * Data Mappers (Supabase -> App Type)
  */
 const mapDBToClinic = (row: any): Clinic => ({
   id: row.id,
@@ -23,7 +22,6 @@ const mapDBToSystem = (row: any): SystemTool => ({
   baseMonthlyCost: row.base_monthly_cost || 0,
   renewalDate: row.renewal_date || '',
   adminOwner: row.admin_owner || '',
-  // Fix: Removed 'vendor_contact' property which does not exist on SystemTool interface
   vendorContact: row.vendor_contact || '',
   status: row.status as any,
   issues: row.issues || [],
@@ -44,6 +42,36 @@ const mapDBToEmployee = (row: any, assignedSystems: string[]): Employee => ({
 });
 
 export const db = {
+  // Check if the necessary tables exist
+  checkSchema: async (): Promise<{ ok: boolean; message?: string }> => {
+    try {
+      // Try to select 1 record from tenants to see if table exists
+      const { error } = await supabase.from('tenants').select('id').limit(1);
+      if (error) {
+        // Postgres error 42P01 means "relation does not exist" (table missing)
+        if (error.code === '42P01') {
+          return { ok: false, message: 'MISSING_TABLES' };
+        }
+        // Other errors (auth, network)
+        return { ok: false, message: error.message };
+      }
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, message: err.message };
+    }
+  },
+
+  getTenantById: async (tenantId: string): Promise<{ id: string; name: string } | null> => {
+    const { data, error } = await supabase
+      .from('tenants')
+      .select('id, name')
+      .eq('id', tenantId)
+      .single();
+    
+    if (error || !data) return null;
+    return data;
+  },
+
   getTenants: async (): Promise<Tenant[]> => {
     const { data: dbTenants, error: tError } = await supabase.from('tenants').select('*');
     if (tError) throw tError;
@@ -96,12 +124,14 @@ export const db = {
     if (data.plan) dbData.plan = data.plan;
     if (data.governance) dbData.governance = data.governance;
     if (data.status) dbData.status = data.status;
+    if (data.ownerEmail) dbData.owner_email = data.ownerEmail;
 
-    await supabase.from('tenants').upsert({ id: tenantId, ...dbData });
+    const { error } = await supabase.from('tenants').upsert({ id: tenantId, ...dbData });
+    if (error) throw error;
   },
 
   upsertClinic: async (tenantId: string, clinic: Clinic) => {
-    await supabase.from('clinics').upsert({
+    const { error } = await supabase.from('clinics').upsert({
       id: clinic.id,
       tenant_id: tenantId,
       name: clinic.name,
@@ -110,10 +140,11 @@ export const db = {
       phone: clinic.phone,
       chairs: clinic.chairs
     });
+    if (error) throw error;
   },
 
   upsertSystem: async (tenantId: string, system: SystemTool) => {
-    await supabase.from('systems').upsert({
+    const { error } = await supabase.from('systems').upsert({
       id: system.id,
       tenant_id: tenantId,
       name: system.name,
@@ -128,6 +159,7 @@ export const db = {
       issues: system.issues,
       contract_url: system.contractUrl || null
     });
+    if (error) throw error;
   },
 
   uploadSystemFile: async (file: File): Promise<string> => {
@@ -135,6 +167,7 @@ export const db = {
     const fileName = `${Math.random()}.${fileExt}`;
     const filePath = `contracts/${fileName}`;
 
+    // Ensure bucket exists or handle error is done via SQL setup usually
     const { error: uploadError } = await supabase.storage
       .from('system-assets')
       .upload(filePath, file);
@@ -164,6 +197,7 @@ export const db = {
 
     if (empError) throw empError;
 
+    // Handle many-to-many relationship
     await supabase.from('employee_assigned_systems').delete().eq('employee_id', employee.id);
     if (employee.assignedSystems.length > 0) {
       const assignments = employee.assignedSystems.map(sysId => ({
@@ -172,7 +206,5 @@ export const db = {
       }));
       await supabase.from('employee_assigned_systems').insert(assignments);
     }
-  },
-
-  reset: async () => []
+  }
 };

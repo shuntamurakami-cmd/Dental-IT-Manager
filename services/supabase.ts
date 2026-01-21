@@ -1,7 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Provided credentials
-const SUPABASE_URL = 'https://zjnylpxfecitxugrtkzn.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_vb5Q2nf_RcrJrajiAzOJPQ_6epbB3rO';
+// Project ID: iwpyulfnrvmbngfbwyzy
+const SUPABASE_URL = 'https://iwpyulfnrvmbngfbwyzy.supabase.co';
+
+// Publishable API Key
+const SUPABASE_KEY = 'sb_publishable_0g1J7tFE6dKchNMybDrYQA_O4bg9E6H';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);

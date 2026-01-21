@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { ExternalLink, AlertCircle, Calendar, User, Server, Plus, X, Search, Pencil, FileText, Upload, Loader2, FileCheck } from 'lucide-react';
+import { ExternalLink, Calendar, User, Plus, X, Pencil, Upload, Loader2, FileCheck } from 'lucide-react';
 import { SystemTool, Employee } from '../../types';
 import { db } from '../../services/db';
+import { useNotification } from '../../contexts/NotificationContext';
+import { SYSTEM_PRESETS } from '../../constants';
 
 interface SystemCatalogProps {
   systems: SystemTool[];
@@ -10,20 +12,14 @@ interface SystemCatalogProps {
   onUpdateSystem: (system: SystemTool) => void;
 }
 
-const PRESET_SYSTEMS = [
-  { name: 'Apotool & Box', category: '予約管理', baseMonthlyCost: 30000, monthlyCostPerUser: 0, url: 'https://apotool.jp' },
-  { name: 'Dentis', category: 'クラウドカルテ', baseMonthlyCost: 40000, monthlyCostPerUser: 0, url: 'https://dentis-cloud.com' },
-  { name: 'MICHEL', category: 'レセコン', baseMonthlyCost: 25000, monthlyCostPerUser: 0, url: 'https://www.dentalite.co.jp' },
-  { name: 'Google Workspace', category: 'グループウェア', baseMonthlyCost: 0, monthlyCostPerUser: 1360, url: 'https://workspace.google.com' },
-  { name: 'Slack', category: 'チャット', baseMonthlyCost: 0, monthlyCostPerUser: 960, url: 'https://slack.com' },
-];
-
 const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, employees = [], onAddSystem, onUpdateSystem }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSystem, setEditingSystem] = useState<SystemTool | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedPreset, setSelectedPreset] = useState<typeof PRESET_SYSTEMS[0] | null>(null);
+  const [selectedPreset, setSelectedPreset] = useState<typeof SYSTEM_PRESETS[0] | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  
+  const { notify } = useNotification();
 
   const [formData, setFormData] = useState<Partial<SystemTool>>({
     name: '',
@@ -46,8 +42,9 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, employees = [], 
     try {
       const publicUrl = await db.uploadSystemFile(file);
       setFormData(prev => ({ ...prev, contractUrl: publicUrl }));
+      notify('success', 'ファイルをアップロードしました');
     } catch (err) {
-      alert("ファイルのアップロードに失敗しました。バケット設定を確認してください。");
+      notify('error', 'ファイルのアップロードに失敗しました。ストレージ設定を確認してください。');
     } finally {
       setIsUploading(false);
     }
@@ -79,7 +76,7 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, employees = [], 
     setIsModalOpen(true);
   };
 
-  const handleSelectPreset = (preset: typeof PRESET_SYSTEMS[0]) => {
+  const handleSelectPreset = (preset: typeof SYSTEM_PRESETS[0]) => {
     setSelectedPreset(preset);
     setFormData(prev => ({
       ...prev,
@@ -117,7 +114,7 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, employees = [], 
     setIsModalOpen(false);
   };
 
-  const filteredPresets = PRESET_SYSTEMS.filter(p => 
+  const filteredPresets = SYSTEM_PRESETS.filter(p => 
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.category.includes(searchQuery)
   );
@@ -135,65 +132,80 @@ const SystemCatalog: React.FC<SystemCatalogProps> = ({ systems, employees = [], 
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {systems.map((sys) => {
-          const assignedCount = employees.filter(e => e.assignedSystems.includes(sys.id)).length;
-          const currentTotal = sys.baseMonthlyCost + (sys.monthlyCostPerUser * assignedCount);
-
-          return (
-          <div key={sys.id} className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col group relative">
-            {sys.contractUrl && (
-              <a href={sys.contractUrl} target="_blank" rel="noreferrer" title="契約書を確認" className="absolute top-4 right-12 p-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors">
-                <FileCheck size={16} />
-              </a>
-            )}
-            <div className="p-6 flex-1">
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-lg font-bold text-slate-500">
-                    {sys.name.charAt(0)}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900">{sys.name}</h3>
-                    <p className="text-xs text-slate-500">{sys.category}</p>
-                  </div>
-                </div>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  sys.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                }`}>
-                  {sys.status === 'Active' ? '稼働中' : '見直し中'}
-                </span>
-              </div>
-
-              <div className="bg-slate-50 rounded-lg p-3 mb-4">
-                 <div className="text-xs text-slate-500 mb-1">現在の月額コスト</div>
-                 <div className="text-lg font-bold text-slate-900">¥{currentTotal.toLocaleString()}</div>
-              </div>
-
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between py-1 border-b border-slate-100">
-                  <span className="text-slate-500 flex items-center"><User size={14} className="mr-1"/>管理者</span>
-                  <span>{sys.adminOwner}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-100">
-                  <span className="text-slate-500 flex items-center"><Calendar size={14} className="mr-1"/>更新日</span>
-                  <span>{sys.renewalDate}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 border-t border-slate-200 rounded-b-xl flex justify-between items-center">
-              <a href={sys.url} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:text-blue-800 flex items-center">
-                ログイン <ExternalLink size={14} className="ml-1" />
-              </a>
-              <button onClick={() => openEditModal(sys)} className="text-sm text-slate-600 hover:text-slate-900 font-medium flex items-center bg-white border border-slate-300 px-3 py-1.5 rounded-lg">
-                <Pencil size={14} className="mr-1.5" /> 編集
-              </button>
-            </div>
+      {systems.length === 0 ? (
+        <div className="text-center py-12 bg-white rounded-xl border border-slate-200 border-dashed">
+          <div className="p-4 bg-slate-50 inline-block rounded-full mb-4">
+            <ExternalLink className="h-8 w-8 text-slate-400" />
           </div>
-          );
-        })}
-      </div>
+          <h3 className="text-lg font-medium text-slate-900">システムが登録されていません</h3>
+          <p className="mt-2 text-sm text-slate-500 max-w-sm mx-auto">
+            現在利用しているSaaSやソフトウェアを登録して、コストや契約更新日を管理しましょう。
+          </p>
+          <button onClick={openAddModal} className="mt-6 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">
+            最初のシステムを登録
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {systems.map((sys) => {
+            const assignedCount = employees.filter(e => e.assignedSystems.includes(sys.id)).length;
+            const currentTotal = sys.baseMonthlyCost + (sys.monthlyCostPerUser * assignedCount);
+
+            return (
+            <div key={sys.id} className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col group relative">
+              {sys.contractUrl && (
+                <a href={sys.contractUrl} target="_blank" rel="noreferrer" title="契約書を確認" className="absolute top-4 right-12 p-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors">
+                  <FileCheck size={16} />
+                </a>
+              )}
+              <div className="p-6 flex-1">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-lg font-bold text-slate-500">
+                      {sys.name.charAt(0)}
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900">{sys.name}</h3>
+                      <p className="text-xs text-slate-500">{sys.category}</p>
+                    </div>
+                  </div>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    sys.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                  }`}>
+                    {sys.status === 'Active' ? '稼働中' : '見直し中'}
+                  </span>
+                </div>
+
+                <div className="bg-slate-50 rounded-lg p-3 mb-4">
+                   <div className="text-xs text-slate-500 mb-1">現在の月額コスト</div>
+                   <div className="text-lg font-bold text-slate-900">¥{currentTotal.toLocaleString()}</div>
+                </div>
+
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-500 flex items-center"><User size={14} className="mr-1"/>管理者</span>
+                    <span>{sys.adminOwner}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-500 flex items-center"><Calendar size={14} className="mr-1"/>更新日</span>
+                    <span>{sys.renewalDate}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-50 border-t border-slate-200 rounded-b-xl flex justify-between items-center">
+                <a href={sys.url} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:text-blue-800 flex items-center">
+                  ログイン <ExternalLink size={14} className="ml-1" />
+                </a>
+                <button onClick={() => openEditModal(sys)} className="text-sm text-slate-600 hover:text-slate-900 font-medium flex items-center bg-white border border-slate-300 px-3 py-1.5 rounded-lg">
+                  <Pencil size={14} className="mr-1.5" /> 編集
+                </button>
+              </div>
+            </div>
+            );
+          })}
+        </div>
+      )}
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

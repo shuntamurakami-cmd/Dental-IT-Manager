@@ -1,5 +1,17 @@
 import { Clinic, ClinicType, Employee, EmploymentType, StaffRole, SystemTool } from './types';
 
+// Shared presets for System Catalog and Onboarding
+export const SYSTEM_PRESETS = [
+  { name: 'Apotool & Box', category: '予約管理', baseMonthlyCost: 30000, monthlyCostPerUser: 0, url: 'https://apotool.jp' },
+  { name: 'Dentis', category: 'クラウドカルテ', baseMonthlyCost: 40000, monthlyCostPerUser: 0, url: 'https://dentis-cloud.com' },
+  { name: 'MICHEL', category: 'レセコン', baseMonthlyCost: 25000, monthlyCostPerUser: 0, url: 'https://www.dentalite.co.jp' },
+  { name: 'Google Workspace', category: 'グループウェア', baseMonthlyCost: 0, monthlyCostPerUser: 1360, url: 'https://workspace.google.com' },
+  { name: 'Slack', category: 'チャット', baseMonthlyCost: 0, monthlyCostPerUser: 960, url: 'https://slack.com' },
+  { name: 'MoneyForward クラウド', category: '会計・人事', baseMonthlyCost: 5000, monthlyCostPerUser: 0, url: 'https://moneyforward.com' },
+  { name: 'SmartHR', category: '労務管理', baseMonthlyCost: 0, monthlyCostPerUser: 600, url: 'https://smarthr.jp' },
+  { name: 'Zoom', category: 'Web会議', baseMonthlyCost: 2000, monthlyCostPerUser: 0, url: 'https://zoom.us' },
+];
+
 export const CLINICS: Clinic[] = [
   {
     id: 'c1',

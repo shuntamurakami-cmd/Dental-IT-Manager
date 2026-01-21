@@ -10,11 +10,11 @@ import Auth from './components/Auth';
 import SuperAdminDashboard from './components/views/SuperAdminDashboard';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { SetupGuide } from './components/SetupGuide';
-import { Loader2, AlertCircle, Cloud } from 'lucide-react';
+import { Loader2, AlertCircle, Cloud, ShieldAlert } from 'lucide-react';
 import { Tenant, User, UserRole, Clinic, SystemTool, Employee, GovernanceConfig, ClinicType, StaffRole, EmploymentType } from './types';
 import { db } from './services/db';
 import { supabase } from './services/supabase';
-import { GOVERNANCE_RULES } from './constants';
+import { GOVERNANCE_RULES, CLINICS, SYSTEMS, EMPLOYEES } from './constants';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 
 // Main App Component Content (Separated for Context usage)
@@ -46,7 +46,6 @@ const AppContent: React.FC = () => {
   }, []);
 
   const checkSystem = async () => {
-    // First, check if we can talk to the DB and if tables exist
     const schemaCheck = await db.checkSchema();
     
     if (!schemaCheck.ok) {
@@ -62,7 +61,6 @@ const AppContent: React.FC = () => {
 
     setSchemaStatus('ok');
 
-    // If schema is OK, check session
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) {
       handleSetUserFromSession(session.user);
@@ -89,13 +87,35 @@ const AppContent: React.FC = () => {
   }, [currentUser?.id, schemaStatus]);
 
   const loadTenantData = async () => {
+    if (!currentUser) return;
+
+    // Always start loading when fetching/resolving data
     setIsLoading(true);
+
     try {
-      const data = await db.getTenants();
-      setTenants(data);
-      if (currentUser && currentUser.tenantId === 'pending' && data.length > 0) {
-        setCurrentUser(prev => prev ? { ...prev, tenantId: data[0].id } : null);
+      let effectiveTenantId = currentUser.tenantId;
+
+      // 1. Resolve pending tenant ID (e.g. for old users or race condition in signup)
+      if (effectiveTenantId === 'pending' && currentUser.role !== UserRole.SUPER_ADMIN) {
+        const foundId = await db.getTenantIdByEmail(currentUser.email);
+        if (foundId) {
+          effectiveTenantId = foundId;
+          // Update local state to avoid re-fetching next time
+          setCurrentUser(prev => prev ? { ...prev, tenantId: foundId } : null);
+        }
       }
+
+      // 2. If still pending, we cannot load data.
+      if (effectiveTenantId === 'pending' && currentUser.role !== UserRole.SUPER_ADMIN) {
+        setTenants([]);
+        setIsLoading(false);
+        return;
+      }
+
+      // 3. Fetch Data
+      const targetTenantId = currentUser.role === UserRole.SUPER_ADMIN ? undefined : effectiveTenantId;
+      const data = await db.getTenants(targetTenantId);
+      setTenants(data);
     } catch (err: any) {
       console.error("Failed to load tenant data", err);
       if (err.code === '42P01') {
@@ -113,11 +133,10 @@ const AppContent: React.FC = () => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
     
     if (error) {
-      // If user doesn't exist and it is the demo user, try to auto-provision
-      if (email === 'demo@whitedental.jp' && error.message.includes('Invalid login credentials')) {
-         return signup('White Dental Group', '管理者', '', email, pass);
+      if (email === 'admin@saas-provider.com' && error.message.includes('Invalid login credentials')) {
+         return signup('SaaS Provider Inc.', 'System', 'Admin', email, pass);
       }
-
+      
       let msg = 'ログインに失敗しました。';
       if (error.message.includes('Invalid login credentials')) msg = 'メールアドレスまたはパスワードが間違っています。';
       return { success: false, message: msg };
@@ -128,18 +147,15 @@ const AppContent: React.FC = () => {
 
   const signup = async (company: string, lastName: string, firstName: string, email: string, pass: string, inviteTenantId?: string): Promise<{ success: boolean; message?: string }> => {
     setIsSaving(true);
+    const isGuestDemo = email.startsWith('guest_');
 
     try {
-      // 1. Create Auth User
-      // Note: In a real app, we should probably check if tenant exists first if inviteTenantId is present.
-      
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password: pass,
         options: { 
           data: { 
             full_name: `${lastName} ${firstName}`,
-            // If invited, we can optionally set metadata here, but we will handle DB link below
             tenant_id: inviteTenantId || undefined
           } 
         }
@@ -152,46 +168,40 @@ const AppContent: React.FC = () => {
 
       if (!authData.user) {
         setIsSaving(false);
-        return { success: true, message: '確認メールを送信しました。メール内のリンクをクリックしてください。' };
+        return { success: true, message: '確認メールを送信しました。' };
       }
 
+      // New Tenant ID logic
+      const newTenantId = inviteTenantId || `tenant_${Date.now()}`;
+
       // 2. Create Initial Data in DB
-      
       if (inviteTenantId) {
-        // --- JOIN EXISTING TENANT FLOW ---
-        // Just create the employee record
         const employeeId = `e_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
         const newEmployee: Employee = {
           id: employeeId,
           firstName: firstName,
           lastName: lastName,
-          clinicId: '', // Ideally we assign to HQ or ask later
-          role: StaffRole.DA, // Default role
+          clinicId: '', 
+          role: '歯科助手 (DA)', // Default role as string
           employmentType: EmploymentType.FULL_TIME,
           email: email,
           joinDate: new Date().toISOString().split('T')[0],
           assignedSystems: [],
           status: 'Active'
         };
-
         await db.upsertEmployee(inviteTenantId, newEmployee);
-        
-        // Refresh session to ensure user has correct context if needed (though we handle logic via DB fetch)
         notify('success', '組織に参加しました');
-
       } else {
-        // --- CREATE NEW TENANT FLOW ---
-        const newTenantId = `tenant_${Date.now()}`;
         const defaultClinicId = `c_${Date.now()}_hq`;
         const adminEmployeeId = `e_${Date.now()}_admin`;
 
         const defaultClinic: Clinic = {
           id: defaultClinicId,
-          name: `${company} 本院`,
+          name: isGuestDemo ? 'ホワイトデンタルクリニック 本院' : `${company} 本院`,
           type: ClinicType.HQ,
-          address: '',
-          phone: '',
-          chairs: 0
+          address: isGuestDemo ? '東京都港区六本木1-1-1' : '',
+          phone: isGuestDemo ? '03-1234-5678' : '',
+          chairs: isGuestDemo ? 8 : 0
         };
 
         const adminEmployee: Employee = {
@@ -199,7 +209,7 @@ const AppContent: React.FC = () => {
           firstName: firstName || '管理者',
           lastName: lastName || '',
           clinicId: defaultClinicId,
-          role: StaffRole.SYSADMIN,
+          role: '情報システム', // Admin Role
           employmentType: EmploymentType.FULL_TIME,
           email: email,
           joinDate: new Date().toISOString().split('T')[0],
@@ -209,18 +219,48 @@ const AppContent: React.FC = () => {
 
         await db.upsertTenant(newTenantId, {
           id: newTenantId,
-          name: company,
+          name: isGuestDemo ? 'ホワイトデンタルグループ (Demo)' : company,
           plan: 'Pro',
           status: 'Active',
           ownerEmail: email,
           governance: GOVERNANCE_RULES
         });
+        
         await db.upsertClinic(newTenantId, defaultClinic);
         await db.upsertEmployee(newTenantId, adminEmployee);
-        notify('success', 'アカウントと組織を作成しました');
+
+        if (isGuestDemo) {
+           for (const c of CLINICS) {
+             if (c.id === 'c1') continue; 
+             await db.upsertClinic(newTenantId, { ...c, id: `${newTenantId}_${c.id}` });
+           }
+           for (const s of SYSTEMS) {
+             await db.upsertSystem(newTenantId, { ...s, id: `${newTenantId}_${s.id}` });
+           }
+           for (const e of EMPLOYEES) {
+             if (e.id === 'e1') continue;
+             const mappedClinicId = e.clinicId === 'c1' ? defaultClinicId : `${newTenantId}_${e.clinicId}`;
+             const mappedSystems = e.assignedSystems.map(sysId => `${newTenantId}_${sysId}`);
+             await db.upsertEmployee(newTenantId, { 
+               ...e, 
+               id: `${newTenantId}_${e.id}`, 
+               clinicId: mappedClinicId,
+               assignedSystems: mappedSystems
+             });
+           }
+           notify('success', 'デモ環境を構築しました');
+        } else {
+           notify('success', 'アカウントと組織を作成しました');
+        }
       }
       
-      await loadTenantData();
+      // Update local state immediately for smoother transition
+      setCurrentUser(prev => prev ? { ...prev, tenantId: newTenantId } : null);
+      
+      // Load data for the specific new tenant
+      const data = await db.getTenants(newTenantId);
+      setTenants(data);
+      
       return { success: true };
 
     } catch (err: any) {
@@ -244,13 +284,14 @@ const AppContent: React.FC = () => {
     notify('info', 'ログアウトしました');
   };
 
-  // --- Mutation Wrappers ---
   const wrapMutation = async (mutation: () => Promise<void>, successMessage: string) => {
-    if (!currentUser) return;
+    if (!currentUser || !tenants.length) return;
     setIsSaving(true);
     try {
       await mutation();
-      await loadTenantData();
+      // Only refresh data for current tenant
+      const data = await db.getTenants(currentUser.tenantId);
+      setTenants(data);
       notify('success', successMessage);
     } catch (err: any) {
       console.error(err);
@@ -264,13 +305,14 @@ const AppContent: React.FC = () => {
   const handleUpdateClinic = (data: Clinic) => wrapMutation(() => db.upsertClinic(tenants[0].id, data), '医院情報を更新しました');
   const handleAddSystem = (data: SystemTool) => wrapMutation(() => db.upsertSystem(tenants[0].id, data), 'システムを登録しました');
   const handleUpdateSystem = (data: SystemTool) => wrapMutation(() => db.upsertSystem(tenants[0].id, data), 'システム情報を更新しました');
+  const handleDeleteSystem = (systemId: string) => wrapMutation(() => db.deleteSystem(tenants[0].id, systemId), 'システムを削除しました');
+  
   const handleAddEmployee = (data: Employee) => wrapMutation(() => db.upsertEmployee(tenants[0].id, data), 'スタッフを登録しました');
   const handleUpdateEmployee = (data: Employee) => wrapMutation(() => db.upsertEmployee(tenants[0].id, data), 'スタッフ情報を更新しました');
+  const handleDeleteEmployee = (employeeId: string) => wrapMutation(() => db.deleteEmployee(tenants[0].id, employeeId), 'スタッフを削除しました');
   const handleUpdateGovernance = (data: GovernanceConfig) => wrapMutation(() => db.upsertTenant(tenants[0].id, { governance: data }), '運用ルールを更新しました');
 
   const currentTenant = tenants[0];
-
-  // --- Render Logic ---
 
   if (schemaStatus === 'missing_tables') {
     return <SetupGuide />;
@@ -307,16 +349,31 @@ const AppContent: React.FC = () => {
       <Auth 
         onLogin={login} 
         onSignup={signup} 
-        onDemoStart={() => login('demo@whitedental.jp', 'demo1234')} 
+        onDemoStart={(email, pass) => signup('White Dental Demo', 'Demo', 'User', email, pass)} 
       />
     );
   }
 
   if (currentUser.role === UserRole.SUPER_ADMIN) {
-    return <SuperAdminDashboard tenants={tenants} onLogout={logout} />;
+    return (
+       <SuperAdminDashboard 
+         tenants={tenants} 
+         onLogout={logout} 
+         onRefresh={() => loadTenantData()}
+       />
+    );
   }
 
   if (!currentTenant) {
+    // If we are currently saving (creating account), show loading instead of error
+    if (isSaving) {
+        return (
+          <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-600">
+             <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
+             <p className="font-medium">アカウント設定中...</p>
+          </div>
+        );
+    }
     return (
       <div className="p-20 text-center flex flex-col items-center justify-center min-h-screen bg-slate-50">
         <AlertCircle className="text-amber-500 mb-4" size={48} />
@@ -334,22 +391,27 @@ const AppContent: React.FC = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} />;
       case 'clinics': return <ClinicManagement clinics={currentTenant.clinics} employees={currentTenant.employees} onAddClinic={handleAddClinic} onUpdateClinic={handleUpdateClinic} />;
-      case 'systems': return <SystemCatalog systems={currentTenant.systems} employees={currentTenant.employees} onAddSystem={handleAddSystem} onUpdateSystem={handleUpdateSystem} />;
-      // Pass tenant ID implicitly via the fact we are rendering with context, but UserDirectory uses invite link from window for now.
+      case 'systems': 
+        return <SystemCatalog 
+                 systems={currentTenant.systems} 
+                 employees={currentTenant.employees} 
+                 onAddSystem={handleAddSystem} 
+                 onUpdateSystem={handleUpdateSystem} 
+                 onDeleteSystem={handleDeleteSystem}
+               />;
       case 'users': return (
         <>
-          {/* We pass the tenantId for the invite modal to generate correct link */}
           <UserDirectory 
+             tenantId={currentTenant.id}
              clinics={currentTenant.clinics} 
              systems={currentTenant.systems} 
              employees={currentTenant.employees} 
+             governance={currentTenant.governance || GOVERNANCE_RULES}
              onAddEmployee={handleAddEmployee} 
-             onUpdateEmployee={handleUpdateEmployee} 
+             onUpdateEmployee={handleUpdateEmployee}
+             onDeleteEmployee={handleDeleteEmployee}
+             onUpdateGovernance={handleUpdateGovernance}
           />
-          {/* NOTE: Inside UserDirectory, we are using a simplified InviteModal that relies on passing tenantId via props was cleaner,
-              but for minimal code changes I embedded it in UserDirectory. Since UserDirectory receives employees list,
-              I grabbed tenant_id from employee data inside the component.
-           */}
         </>
       );
       case 'costs': return <CostAnalysis systems={currentTenant.systems} employees={currentTenant.employees} />;
@@ -361,7 +423,7 @@ const AppContent: React.FC = () => {
   return (
     <Layout activeTab={activeTab} onTabChange={setActiveTab} user={currentUser} onLogout={logout}>
       {/* Onboarding Wizard Modal */}
-      {showOnboarding && <OnboardingWizard tenantId={currentTenant.id} onComplete={loadTenantData} />}
+      {showOnboarding && <OnboardingWizard tenantId={currentTenant.id} onComplete={() => loadTenantData()} />}
 
       <div className="mb-4 flex flex-col md:flex-row justify-between items-end md:items-center gap-2">
          <div className="flex items-center space-x-2">
@@ -380,6 +442,12 @@ const AppContent: React.FC = () => {
                   </>
                 )}
             </div>
+            {currentUser.email.startsWith('guest_') && (
+              <div className="bg-indigo-100 text-indigo-700 text-xs px-3 py-1.5 rounded-full font-bold flex items-center">
+                 <ShieldAlert size={12} className="mr-1" />
+                 Guest Demo Mode
+              </div>
+            )}
          </div>
       </div>
       {renderContent()}

@@ -112,7 +112,9 @@ const Governance: React.FC<GovernanceProps> = ({ governance, onUpdate }) => {
                <div key={idx} className="relative group p-4 border border-slate-200 rounded-xl hover:border-blue-500 transition-all bg-slate-50/30">
                  {isEditing ? (
                    <div className="space-y-2">
-                     <button onClick={() => removeManual(idx)} className="absolute top-2 right-2 text-red-400 hover:text-red-600"><Trash2 size={14}/></button>
+                     <button type="button" onClick={() => removeManual(idx)} className="absolute top-2 right-2 text-red-400 hover:text-red-600">
+                       <Trash2 size={14} className="pointer-events-none" />
+                     </button>
                      <input value={manual.title} onChange={e => {
                        const next = [...(editData.manuals || [])];
                        next[idx].title = e.target.value;

@@ -1,5 +1,16 @@
 import { Clinic, ClinicType, Employee, EmploymentType, StaffRole, SystemTool } from './types';
 
+export const DEFAULT_ROLES = [
+  '歯科医師 (Dr)',
+  '歯科衛生士 (DH)',
+  '歯科助手 (DA)',
+  '事務・受付',
+  'トリートメントコーディネーター',
+  '情報システム',
+  '事務長',
+  '清掃スタッフ'
+];
+
 // Shared presets for System Catalog and Onboarding
 export const SYSTEM_PRESETS = [
   { name: 'Apotool & Box', category: '予約管理', baseMonthlyCost: 30000, monthlyCostPerUser: 0, url: 'https://apotool.jp' },
@@ -177,5 +188,6 @@ export const GOVERNANCE_RULES = {
   security: [
     { title: '患者情報(PHI)の取り扱い', content: '患者氏名やカルテ番号を含むファイルは、必ず「患者情報」フォルダに保存し、パスワードをかけること。' },
     { title: '共有フォルダ権限', content: '「経営管理」フォルダは院長・事務長のみアクセス可能とする。各医院フォルダは当該医院のスタッフのみアクセス可。' },
-  ]
+  ],
+  customRoles: DEFAULT_ROLES // Initialize with defaults
 };

@@ -22,7 +22,7 @@ const mapDBToSystem = (row: any): SystemTool => ({
   baseMonthlyCost: row.base_monthly_cost || 0,
   renewalDate: row.renewal_date || '',
   adminOwner: row.admin_owner || '',
-  vendorContact: row.vendor_contact || '',
+  vendorContact: row.vendorContact || '',
   status: row.status as any,
   issues: row.issues || [],
   contractUrl: row.contract_url || undefined
@@ -33,7 +33,7 @@ const mapDBToEmployee = (row: any, assignedSystems: string[]): Employee => ({
   firstName: row.first_name,
   lastName: row.last_name,
   clinicId: row.clinic_id || '',
-  role: row.role as StaffRole,
+  role: row.role, // role is string now
   employmentType: row.employment_type as EmploymentType,
   email: row.email || '',
   joinDate: row.join_date || '',
@@ -45,14 +45,11 @@ export const db = {
   // Check if the necessary tables exist
   checkSchema: async (): Promise<{ ok: boolean; message?: string }> => {
     try {
-      // Try to select 1 record from tenants to see if table exists
       const { error } = await supabase.from('tenants').select('id').limit(1);
       if (error) {
-        // Postgres error 42P01 means "relation does not exist" (table missing)
         if (error.code === '42P01') {
           return { ok: false, message: 'MISSING_TABLES' };
         }
-        // Other errors (auth, network)
         return { ok: false, message: error.message };
       }
       return { ok: true };
@@ -72,12 +69,44 @@ export const db = {
     return data;
   },
 
-  getTenants: async (): Promise<Tenant[]> => {
-    const { data: dbTenants, error: tError } = await supabase.from('tenants').select('*');
+  // NEW: Resolve Tenant ID by Email (Fallback for missing metadata)
+  getTenantIdByEmail: async (email: string): Promise<string | null> => {
+    // 1. Check employees table
+    const { data: emp } = await supabase
+      .from('employees')
+      .select('tenant_id')
+      .eq('email', email)
+      .maybeSingle();
+    
+    if (emp) return emp.tenant_id;
+
+    // 2. Check tenants table (owner_email)
+    const { data: tenant } = await supabase
+      .from('tenants')
+      .select('id')
+      .eq('owner_email', email)
+      .maybeSingle();
+      
+    if (tenant) return tenant.id;
+
+    return null;
+  },
+
+  // Modified to optionally filter by tenantId (Critical for data isolation)
+  getTenants: async (targetTenantId?: string): Promise<Tenant[]> => {
+    let query = supabase.from('tenants').select('*');
+    
+    // CRITICAL FIX: If a tenantId is provided, ONLY fetch that tenant.
+    if (targetTenantId) {
+      query = query.eq('id', targetTenantId);
+    }
+
+    const { data: dbTenants, error: tError } = await query;
     if (tError) throw tError;
 
     const tenants: Tenant[] = [];
 
+    // Fetch related data for the retrieved tenants only
     for (const t of dbTenants) {
       const [
         { data: dbClinics },
@@ -88,7 +117,7 @@ export const db = {
         supabase.from('clinics').select('*').eq('tenant_id', t.id),
         supabase.from('systems').select('*').eq('tenant_id', t.id),
         supabase.from('employees').select('*').eq('tenant_id', t.id),
-        supabase.from('employee_assigned_systems').select('employee_id, system_id')
+        supabase.from('employee_assigned_systems').select('employee_id, system_id') 
       ]);
 
       const clinics = (dbClinics || []).map(mapDBToClinic);
@@ -130,6 +159,45 @@ export const db = {
     if (error) throw error;
   },
 
+  updateTenantStatus: async (tenantId: string, status: 'Active' | 'Suspended') => {
+    const { error } = await supabase.from('tenants').update({ status }).eq('id', tenantId);
+    if (error) throw error;
+  },
+
+  deleteTenant: async (tenantId: string) => {
+    // Manually delete related data first to ensure no foreign key violations
+    // 1. Get all employees
+    const { data: employees } = await supabase.from('employees').select('id').eq('tenant_id', tenantId);
+    if (employees && employees.length > 0) {
+      const empIds = employees.map(e => e.id);
+      // Delete assignments
+      await supabase.from('employee_assigned_systems').delete().in('employee_id', empIds);
+    }
+
+    // 2. Delete Employees
+    const { error: empError } = await supabase.from('employees').delete().eq('tenant_id', tenantId);
+    if (empError) throw new Error(`Failed to delete employees: ${empError.message}`);
+
+    // 3. Delete Systems (Assignments are already gone via Step 1, but system rows remain)
+    const { error: sysError } = await supabase.from('systems').delete().eq('tenant_id', tenantId);
+    if (sysError) throw new Error(`Failed to delete systems: ${sysError.message}`);
+
+    // 4. Delete Clinics
+    const { error: clinicError } = await supabase.from('clinics').delete().eq('tenant_id', tenantId);
+    if (clinicError) throw new Error(`Failed to delete clinics: ${clinicError.message}`);
+
+    // 5. Delete Tenant
+    const { error: tenantError } = await supabase.from('tenants').delete().eq('id', tenantId);
+    if (tenantError) throw new Error(`Failed to delete tenant: ${tenantError.message}`);
+  },
+
+  sendPasswordResetEmail: async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + '?reset=true',
+    });
+    if (error) throw error;
+  },
+
   upsertClinic: async (tenantId: string, clinic: Clinic) => {
     const { error } = await supabase.from('clinics').upsert({
       id: clinic.id,
@@ -162,12 +230,20 @@ export const db = {
     if (error) throw error;
   },
 
+  deleteSystem: async (tenantId: string, systemId: string) => {
+     // 1. Manually delete assignments for this system to prevent FK errors if CASCADE isn't set
+     await supabase.from('employee_assigned_systems').delete().eq('system_id', systemId);
+     
+     // 2. Delete the system
+     const { error } = await supabase.from('systems').delete().eq('id', systemId).eq('tenant_id', tenantId);
+     if (error) throw error;
+  },
+
   uploadSystemFile: async (file: File): Promise<string> => {
     const fileExt = file.name.split('.').pop();
     const fileName = `${Math.random()}.${fileExt}`;
     const filePath = `contracts/${fileName}`;
 
-    // Ensure bucket exists or handle error is done via SQL setup usually
     const { error: uploadError } = await supabase.storage
       .from('system-assets')
       .upload(filePath, file);
@@ -197,7 +273,6 @@ export const db = {
 
     if (empError) throw empError;
 
-    // Handle many-to-many relationship
     await supabase.from('employee_assigned_systems').delete().eq('employee_id', employee.id);
     if (employee.assignedSystems.length > 0) {
       const assignments = employee.assignedSystems.map(sysId => ({
@@ -206,5 +281,14 @@ export const db = {
       }));
       await supabase.from('employee_assigned_systems').insert(assignments);
     }
+  },
+
+  deleteEmployee: async (tenantId: string, employeeId: string) => {
+    // 1. Delete system assignments first
+    await supabase.from('employee_assigned_systems').delete().eq('employee_id', employeeId);
+
+    // 2. Delete employee
+    const { error } = await supabase.from('employees').delete().eq('id', employeeId).eq('tenant_id', tenantId);
+    if (error) throw error;
   }
 };

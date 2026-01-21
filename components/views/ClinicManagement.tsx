@@ -182,7 +182,7 @@ const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees,
                   required
                   value={name}
                   onChange={e => setName(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="例: ホワイトデンタル 新宿分院"
                 />
               </div>
@@ -221,7 +221,7 @@ const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees,
                   type="text" 
                   value={address}
                   onChange={e => setAddress(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="東京都新宿区..."
                 />
               </div>
@@ -233,7 +233,7 @@ const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees,
                     type="tel" 
                     value={phone}
                     onChange={e => setPhone(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="03-xxxx-xxxx"
                   />
                 </div>
@@ -244,7 +244,7 @@ const ClinicManagement: React.FC<ClinicManagementProps> = ({ clinics, employees,
                     min="0"
                     value={chairs}
                     onChange={e => setChairs(parseInt(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>

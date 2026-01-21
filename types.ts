@@ -102,7 +102,7 @@ export interface Employee {
   firstName: string;
   lastName: string;
   clinicId: string;
-  role: StaffRole;
+  role: string; // Changed from StaffRole enum to string to support custom roles
   employmentType: EmploymentType;
   email: string;
   joinDate: string;
@@ -131,7 +131,8 @@ export interface ManualLink {
 export interface GovernanceConfig {
   naming: NamingRule[];
   security: SecurityPolicy[];
-  manuals?: ManualLink[]; // NEW
+  manuals?: ManualLink[];
+  customRoles?: string[]; // NEW: For custom staff roles
 }
 
 // SaaS / Auth Types
@@ -152,7 +153,7 @@ export interface Tenant {
   id: string;
   name: string;
   plan: 'Free' | 'Pro' | 'Enterprise';
-  status: 'Active' | 'Inactive';
+  status: 'Active' | 'Inactive' | 'Suspended';
   createdAt: string;
   ownerEmail: string;
   clinics: Clinic[];

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Check, AlertCircle, Loader2, Info, UserPlus, ArrowRight } from 'lucide-react';
+import { Database, Check, AlertCircle, Loader2, Info, UserPlus, ArrowRight, ShieldAlert, Play } from 'lucide-react';
 import { db } from '../services/db';
 
 interface AuthResponse {
@@ -10,7 +10,7 @@ interface AuthResponse {
 interface AuthProps {
   onLogin: (email: string, pass: string) => Promise<AuthResponse>;
   onSignup: (company: string, lastName: string, firstName: string, email: string, pass: string, inviteTenantId?: string) => Promise<AuthResponse>;
-  onDemoStart: () => void;
+  onDemoStart: (email: string, pass: string) => Promise<void>;
 }
 
 const Auth: React.FC<AuthProps> = ({ onLogin, onSignup, onDemoStart }) => {
@@ -62,20 +62,15 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onSignup, onDemoStart }) => {
            setError(result.message || 'ログインに失敗しました。');
         }
       } else {
-        // If joining, companyName is ignored
         if ((!inviteTenantId && !companyName) || !lastName || !firstName) {
            setError('すべての項目を入力してください');
            setIsLoading(false);
            return;
         }
-        
-        // Pass inviteTenantId if it exists (joining mode)
         const result = await onSignup(companyName, lastName, firstName, cleanEmail, cleanPass, inviteTenantId || undefined);
-        
         if (!result.success) {
           setError(result.message || 'アカウント作成に失敗しました。');
         } else {
-          // Clear query params on success to clean URL
           window.history.replaceState({}, '', window.location.pathname);
         }
       }
@@ -90,9 +85,29 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onSignup, onDemoStart }) => {
     setError('');
     setIsLoading(true);
     try {
-      await onDemoStart();
+      // Create a unique guest account for isolation
+      const timestamp = Date.now();
+      const guestEmail = `guest_${timestamp}@demo.local`;
+      const guestPass = `demo${timestamp}`;
+      await onDemoStart(guestEmail, guestPass);
     } catch (err) {
-      setError('デモログインに失敗しました');
+      console.error(err);
+      setError('デモ環境の構築に失敗しました');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAdminDemoClick = async () => {
+    setError('');
+    setIsLoading(true);
+    try {
+      const result = await onLogin('admin@saas-provider.com', 'admin1234');
+      if (!result.success) {
+        setError(result.message || '管理者ログインに失敗しました');
+      }
+    } catch (err) {
+      setError('管理者ログイン中にエラーが発生しました');
     } finally {
       setIsLoading(false);
     }
@@ -287,8 +302,22 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onSignup, onDemoStart }) => {
                   disabled={isLoading}
                   className="w-full inline-flex justify-center items-center px-4 py-3 border border-blue-200 shadow-sm text-sm font-bold rounded-xl text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors disabled:opacity-50"
                 >
-                   {isLoading ? <Loader2 size={18} className="animate-spin mr-2"/> : <Check size={18} className="mr-2 text-blue-600" />}
-                   デモ環境で試す (自動セットアップ)
+                   {isLoading ? <Loader2 size={18} className="animate-spin mr-2"/> : <Play size={18} className="mr-2 text-blue-600" />}
+                   デモ環境を試す (ゲストとして開始)
+                </button>
+                <p className="text-xs text-center text-slate-400">
+                  ※あなただけの専用環境が自動生成されます。<br/>
+                  データはブラウザを閉じるとリセットされます。
+                </p>
+                
+                <button
+                  type="button"
+                  onClick={handleAdminDemoClick}
+                  disabled={isLoading}
+                  className="w-full inline-flex justify-center items-center px-4 py-3 text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors mt-2"
+                >
+                   <ShieldAlert size={14} className="mr-2" />
+                   運営管理者としてログイン (Demo)
                 </button>
               </div>
             </div>

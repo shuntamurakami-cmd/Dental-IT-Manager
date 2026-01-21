@@ -8,74 +8,117 @@ import CostAnalysis from './components/views/CostAnalysis';
 import Governance from './components/views/Governance';
 import Auth from './components/Auth';
 import SuperAdminDashboard from './components/views/SuperAdminDashboard';
-import { Upload, RotateCcw, Download, Cloud, Loader2 } from 'lucide-react';
+import { Cloud, Loader2, AlertCircle } from 'lucide-react';
 import { Tenant, User, UserRole, Clinic, SystemTool, Employee, GovernanceConfig, ClinicType, StaffRole, EmploymentType } from './types';
 import { db } from './services/db';
+import { supabase } from './services/supabase';
 import { GOVERNANCE_RULES } from './constants';
 
 const App: React.FC = () => {
   // --- Global State ---
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [showImportModal, setShowImportModal] = useState(false);
-  
-  // Auth & Data State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // Load data on mount
+  // 1. Listen for Auth State Changes (Real-time Session Management)
   useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
-      try {
-        const data = await db.getTenants();
-        setTenants(data);
-      } catch (err) {
-        console.error("Failed to load initial data from DB", err);
-      } finally {
+    // Initial Session Check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        handleSetUserFromSession(session.user);
+      } else {
         setIsLoading(false);
       }
-    };
-    loadData();
+    });
+
+    // Subscibe to Auth Events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        handleSetUserFromSession(session.user);
+      } else {
+        setCurrentUser(null);
+        setTenants([]);
+        setIsLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Derived state for current tenant data
-  const currentTenant = tenants.find(t => t.id === currentUser?.tenantId);
+  const handleSetUserFromSession = (supabaseUser: any) => {
+    const isSuperAdmin = supabaseUser.email === 'admin@saas-provider.com';
+    
+    // We'll map the user. In a full app, we might fetch a 'profiles' table here.
+    setCurrentUser({
+      id: supabaseUser.id,
+      email: supabaseUser.email || '',
+      name: supabaseUser.user_metadata?.full_name || supabaseUser.email?.split('@')[0] || 'User',
+      role: isSuperAdmin ? UserRole.SUPER_ADMIN : UserRole.CLIENT_ADMIN,
+      tenantId: supabaseUser.user_metadata?.tenant_id || 'pending'
+    });
+  };
+
+  // 2. Fetch Data when User is Authenticated
+  useEffect(() => {
+    if (currentUser) {
+      loadTenantData();
+    }
+  }, [currentUser?.id]);
+
+  const loadTenantData = async () => {
+    setIsLoading(true);
+    try {
+      const data = await db.getTenants();
+      setTenants(data);
+      
+      // Update tenantId if it was pending
+      if (currentUser && currentUser.tenantId === 'pending' && data.length > 0) {
+        setCurrentUser(prev => prev ? { ...prev, tenantId: data[0].id } : null);
+      }
+    } catch (err) {
+      console.error("Failed to load tenant data", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- Auth Actions (Real Supabase Auth) ---
   
-  // --- Auth Actions ---
   const login = async (email: string, pass: string): Promise<boolean> => {
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    if (email === 'admin@saas-provider.com' && pass === 'admin') {
-      setCurrentUser({
-        id: 'super_admin_01',
-        email,
-        name: 'SaaS Administrator',
-        role: UserRole.SUPER_ADMIN,
-        tenantId: 'system'
-      });
-      return true;
+    setAuthError(null);
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+    if (error) {
+      setAuthError(error.message);
+      return false;
     }
-
-    // Try finding tenant in the loaded data
-    const matchedTenant = tenants.find(t => t.ownerEmail === email);
-    if (matchedTenant || (email === 'demo@whitedental.jp' && pass === 'demo')) {
-       const tid = matchedTenant ? matchedTenant.id : 'tenant_demo_001';
-       setCurrentUser({
-         id: `user_${tid}`,
-         email,
-         name: matchedTenant ? `${matchedTenant.name} 管理者` : '管理者 アカウント',
-         role: UserRole.CLIENT_ADMIN,
-         tenantId: tid
-       });
-       return true;
-    }
-    return false;
+    return !!data.user;
   };
 
   const signup = async (company: string, email: string, pass: string): Promise<boolean> => {
     setIsSaving(true);
+    setAuthError(null);
+
+    // 1. Supabase Auth Signup
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password: pass,
+      options: {
+        data: { full_name: company }
+      }
+    });
+
+    if (authError) {
+      setAuthError(authError.message);
+      setIsSaving(false);
+      return false;
+    }
+
+    if (!authData.user) return false;
+
+    // 2. Initialize Tenant Data in Public Schema
     const newTenantId = `tenant_${Date.now()}`;
     const defaultClinicId = `c_${Date.now()}_hq`;
     const adminEmployeeId = `e_${Date.now()}_admin`;
@@ -102,184 +145,119 @@ const App: React.FC = () => {
       status: 'Active'
     };
 
-    const newTenant: Tenant = {
-      id: newTenantId,
-      name: company,
-      plan: 'Free',
-      status: 'Active',
-      createdAt: new Date().toISOString().split('T')[0],
-      ownerEmail: email,
-      clinics: [defaultClinic],
-      systems: [],
-      employees: [adminEmployee],
-      governance: GOVERNANCE_RULES
-    };
-
     try {
-      // Create in DB (Relational)
-      await db.upsertTenant(newTenantId, newTenant);
+      await db.upsertTenant(newTenantId, {
+        id: newTenantId,
+        name: company,
+        plan: 'Free',
+        status: 'Active',
+        ownerEmail: email,
+        governance: GOVERNANCE_RULES
+      });
       await db.upsertClinic(newTenantId, defaultClinic);
       await db.upsertEmployee(newTenantId, adminEmployee);
 
-      setTenants(prev => [...prev, newTenant]);
-      setCurrentUser({
-        id: `user_${newTenantId}`,
-        email,
-        name: `${company} 管理者`,
-        role: UserRole.CLIENT_ADMIN,
-        tenantId: newTenantId
-      });
+      // Re-fetch to get the clean state
+      await loadTenantData();
       return true;
     } catch (err) {
-      console.error("Signup failed", err);
+      setAuthError("初期データの作成に失敗しました。管理者に連絡してください。");
+      console.error("Signup DB init failed", err);
       return false;
     } finally {
       setIsSaving(false);
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setCurrentUser(null);
+    setTenants([]);
     setActiveTab('dashboard');
   };
 
-  // --- Data Mutation Actions (Atomic Updates) ---
+  // --- Data Mutation Actions ---
+  // (Remaining actions handleAddClinic etc. stay mostly same but now they operate on current session)
   
   const handleAddClinic = async (newClinic: Clinic) => {
-    if (!currentUser || !currentTenant) return;
+    if (!currentUser || tenants.length === 0) return;
+    const tid = tenants[0].id;
     setIsSaving(true);
     try {
-      await db.upsertClinic(currentTenant.id, newClinic);
-      setTenants(prev => prev.map(t => {
-        if (t.id === currentTenant.id) return { ...t, clinics: [...t.clinics, newClinic] };
-        return t;
-      }));
-    } catch (err) {
-      alert("保存に失敗しました。");
-    } finally {
-      setIsSaving(false);
-    }
+      await db.upsertClinic(tid, newClinic);
+      await loadTenantData();
+    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
   };
 
   const handleUpdateClinic = async (updatedClinic: Clinic) => {
-    if (!currentUser || !currentTenant) return;
+    if (!currentUser || tenants.length === 0) return;
+    const tid = tenants[0].id;
     setIsSaving(true);
     try {
-      await db.upsertClinic(currentTenant.id, updatedClinic);
-      setTenants(prev => prev.map(t => {
-        if (t.id === currentTenant.id) {
-          return { 
-            ...t, 
-            clinics: t.clinics.map(c => c.id === updatedClinic.id ? updatedClinic : c) 
-          };
-        }
-        return t;
-      }));
-    } catch (err) {
-      alert("保存に失敗しました。");
-    } finally {
-      setIsSaving(false);
-    }
+      await db.upsertClinic(tid, updatedClinic);
+      await loadTenantData();
+    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
   };
 
   const handleAddSystem = async (newSystem: SystemTool) => {
-    if (!currentUser || !currentTenant) return;
+    if (!currentUser || tenants.length === 0) return;
+    const tid = tenants[0].id;
     setIsSaving(true);
     try {
-      await db.upsertSystem(currentTenant.id, newSystem);
-      setTenants(prev => prev.map(t => {
-        if (t.id === currentTenant.id) return { ...t, systems: [...t.systems, newSystem] };
-        return t;
-      }));
-    } catch (err) {
-      alert("保存に失敗しました。");
-    } finally {
-      setIsSaving(false);
-    }
+      await db.upsertSystem(tid, newSystem);
+      await loadTenantData();
+    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
   };
 
   const handleUpdateSystem = async (updatedSystem: SystemTool) => {
-    if (!currentUser || !currentTenant) return;
+    if (!currentUser || tenants.length === 0) return;
+    const tid = tenants[0].id;
     setIsSaving(true);
     try {
-      await db.upsertSystem(currentTenant.id, updatedSystem);
-      setTenants(prev => prev.map(t => {
-        if (t.id === currentTenant.id) {
-          return { 
-            ...t, 
-            systems: t.systems.map(s => s.id === updatedSystem.id ? updatedSystem : s) 
-          };
-        }
-        return t;
-      }));
-    } catch (err) {
-      alert("保存に失敗しました。");
-    } finally {
-      setIsSaving(false);
-    }
+      await db.upsertSystem(tid, updatedSystem);
+      await loadTenantData();
+    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
   };
 
   const handleAddEmployee = async (newEmployee: Employee) => {
-    if (!currentUser || !currentTenant) return;
+    if (!currentUser || tenants.length === 0) return;
+    const tid = tenants[0].id;
     setIsSaving(true);
     try {
-      await db.upsertEmployee(currentTenant.id, newEmployee);
-      setTenants(prev => prev.map(t => {
-        if (t.id === currentTenant.id) return { ...t, employees: [...t.employees, newEmployee] };
-        return t;
-      }));
-    } catch (err) {
-      alert("保存に失敗しました。");
-    } finally {
-      setIsSaving(false);
-    }
+      await db.upsertEmployee(tid, newEmployee);
+      await loadTenantData();
+    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
   };
 
   const handleUpdateEmployee = async (updatedEmployee: Employee) => {
-    if (!currentUser || !currentTenant) return;
+    if (!currentUser || tenants.length === 0) return;
+    const tid = tenants[0].id;
     setIsSaving(true);
     try {
-      await db.upsertEmployee(currentTenant.id, updatedEmployee);
-      setTenants(prev => prev.map(t => {
-        if (t.id === currentTenant.id) {
-          return { 
-            ...t, 
-            employees: t.employees.map(e => e.id === updatedEmployee.id ? updatedEmployee : e) 
-          };
-        }
-        return t;
-      }));
-    } catch (err) {
-      alert("保存に失敗しました。");
-    } finally {
-      setIsSaving(false);
-    }
+      await db.upsertEmployee(tid, updatedEmployee);
+      await loadTenantData();
+    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
   };
 
   const handleUpdateGovernance = async (newGovernance: GovernanceConfig) => {
-    if (!currentUser || !currentTenant) return;
+    if (!currentUser || tenants.length === 0) return;
+    const tid = tenants[0].id;
     setIsSaving(true);
     try {
-      await db.upsertTenant(currentTenant.id, { governance: newGovernance });
-      setTenants(prev => prev.map(t => {
-        if (t.id === currentTenant.id) return { ...t, governance: newGovernance };
-        return t;
-      }));
-    } catch (err) {
-      alert("保存に失敗しました。");
-    } finally {
-      setIsSaving(false);
-    }
+      await db.upsertTenant(tid, { governance: newGovernance });
+      await loadTenantData();
+    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
   };
+
+  const currentTenant = tenants[0]; // Multi-tenant support can be added later
 
   // --- Rendering ---
   
-  if (isLoading && tenants.length === 0) {
+  if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-600">
          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
-         <p className="text-slate-600 font-medium">データを読み込み中...</p>
-         <p className="text-xs text-slate-400 mt-2">Connecting to Supabase Database...</p>
+         <p className="font-medium">認証セッションを確立中...</p>
       </div>
     );
   }
@@ -292,70 +270,39 @@ const App: React.FC = () => {
     return <SuperAdminDashboard tenants={tenants} onLogout={logout} />;
   }
 
-  if (!currentTenant) return <div className="p-20 text-center">テナントデータが見つかりません</div>;
+  if (!currentTenant) {
+    return (
+      <div className="p-20 text-center flex flex-col items-center">
+        <AlertCircle className="text-amber-500 mb-4" size={48} />
+        <h2 className="text-xl font-bold mb-2">テナントデータが見つかりません</h2>
+        <p className="text-slate-500 mb-6">アカウントは作成されましたが、初期設定が完了していない可能性があります。</p>
+        <button onClick={logout} className="text-blue-600 font-medium underline">一度ログアウトして再試行</button>
+      </div>
+    );
+  }
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'dashboard':
-        return <Dashboard clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} />;
-      case 'clinics':
-        return (
-          <ClinicManagement 
-            clinics={currentTenant.clinics} 
-            employees={currentTenant.employees} 
-            onAddClinic={handleAddClinic} 
-            onUpdateClinic={handleUpdateClinic}
-          />
-        );
-      case 'systems':
-        return (
-          <SystemCatalog 
-            systems={currentTenant.systems} 
-            employees={currentTenant.employees}
-            onAddSystem={handleAddSystem} 
-            onUpdateSystem={handleUpdateSystem}
-          />
-        );
-      case 'users':
-        return (
-          <UserDirectory 
-            clinics={currentTenant.clinics} 
-            systems={currentTenant.systems} 
-            employees={currentTenant.employees} 
-            onAddEmployee={handleAddEmployee}
-            onUpdateEmployee={handleUpdateEmployee}
-          />
-        );
-      case 'costs':
-        return <CostAnalysis systems={currentTenant.systems} employees={currentTenant.employees} />;
-      case 'governance':
-        return (
-          <Governance 
-            governance={currentTenant.governance || GOVERNANCE_RULES}
-            onUpdate={handleUpdateGovernance}
-          />
-        );
-      default:
-        return <Dashboard clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} />;
+      case 'dashboard': return <Dashboard clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} />;
+      case 'clinics': return <ClinicManagement clinics={currentTenant.clinics} employees={currentTenant.employees} onAddClinic={handleAddClinic} onUpdateClinic={handleUpdateClinic} />;
+      case 'systems': return <SystemCatalog systems={currentTenant.systems} employees={currentTenant.employees} onAddSystem={handleAddSystem} onUpdateSystem={handleUpdateSystem} />;
+      case 'users': return <UserDirectory clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} onAddEmployee={handleAddEmployee} onUpdateEmployee={handleUpdateEmployee} />;
+      case 'costs': return <CostAnalysis systems={currentTenant.systems} employees={currentTenant.employees} />;
+      case 'governance': return <Governance governance={currentTenant.governance || GOVERNANCE_RULES} onUpdate={handleUpdateGovernance} />;
+      default: return <Dashboard clinics={currentTenant.clinics} systems={currentTenant.systems} employees={currentTenant.employees} />;
     }
   };
 
   return (
-    <Layout 
-      activeTab={activeTab} 
-      onTabChange={setActiveTab} 
-      user={currentUser}
-      onLogout={logout}
-    >
+    <Layout activeTab={activeTab} onTabChange={setActiveTab} user={currentUser} onLogout={logout}>
       <div className="mb-4 flex flex-col md:flex-row justify-between items-end md:items-center gap-2">
          <div className="flex items-center space-x-2">
             <div className={`flex items-center text-xs px-3 py-1.5 rounded-full transition-colors ${isSaving ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
                 {isSaving ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Cloud size={14} className="mr-1.5" />}
-                <span>{isSaving ? 'Saving to Database...' : 'Relational DB Connected'}</span>
+                <span>{isSaving ? 'Synchronizing...' : 'Securely Connected'}</span>
             </div>
          </div>
       </div>
-
       {renderContent()}
     </Layout>
   );

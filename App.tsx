@@ -23,9 +23,8 @@ const App: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // 1. Listen for Auth State Changes (Real-time Session Management)
+  // 1. Listen for Auth State Changes
   useEffect(() => {
-    // Initial Session Check
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         handleSetUserFromSession(session.user);
@@ -34,7 +33,6 @@ const App: React.FC = () => {
       }
     });
 
-    // Subscibe to Auth Events
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         handleSetUserFromSession(session.user);
@@ -50,8 +48,6 @@ const App: React.FC = () => {
 
   const handleSetUserFromSession = (supabaseUser: any) => {
     const isSuperAdmin = supabaseUser.email === 'admin@saas-provider.com';
-    
-    // We'll map the user. In a full app, we might fetch a 'profiles' table here.
     setCurrentUser({
       id: supabaseUser.id,
       email: supabaseUser.email || '',
@@ -61,7 +57,6 @@ const App: React.FC = () => {
     });
   };
 
-  // 2. Fetch Data when User is Authenticated
   useEffect(() => {
     if (currentUser) {
       loadTenantData();
@@ -73,8 +68,6 @@ const App: React.FC = () => {
     try {
       const data = await db.getTenants();
       setTenants(data);
-      
-      // Update tenantId if it was pending
       if (currentUser && currentUser.tenantId === 'pending' && data.length > 0) {
         setCurrentUser(prev => prev ? { ...prev, tenantId: data[0].id } : null);
       }
@@ -85,23 +78,44 @@ const App: React.FC = () => {
     }
   };
 
-  // --- Auth Actions (Real Supabase Auth) ---
+  // --- Auth Actions ---
   
-  const login = async (email: string, pass: string): Promise<boolean> => {
+  const login = async (email: string, pass: string): Promise<{ success: boolean; message?: string }> => {
     setAuthError(null);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+    
+    // If login fails and it's the demo account, try to auto-signup to facilitate the demo experience
+    if (error && email === 'demo@whitedental.jp') {
+      console.log("Demo user not found or password incorrect. Attempting auto-provisioning...");
+      
+      const signupResult = await signup('White Dental Group', email, pass);
+      
+      // If signup failed, it might be because the user exists but password was wrong in the first place
+      if (!signupResult.success) {
+        if (signupResult.message?.includes('registered') || signupResult.message?.includes('already exists')) {
+          return { 
+            success: false, 
+            message: "デモアカウントは既に存在しますが、パスワードが一致しません。'demo1234'を使用してください。" 
+          };
+        }
+        return signupResult;
+      }
+      return { success: true };
+    }
+
     if (error) {
       setAuthError(error.message);
-      return false;
+      let msg = 'ログインに失敗しました。メールアドレスとパスワードを確認してください。';
+      if (error.message.includes('Invalid login credentials')) msg = 'メールアドレスまたはパスワードが間違っています。';
+      return { success: false, message: msg };
     }
-    return !!data.user;
+    return { success: true };
   };
 
-  const signup = async (company: string, email: string, pass: string): Promise<boolean> => {
+  const signup = async (company: string, email: string, pass: string): Promise<{ success: boolean; message?: string }> => {
     setIsSaving(true);
     setAuthError(null);
 
-    // 1. Supabase Auth Signup
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password: pass,
@@ -113,12 +127,14 @@ const App: React.FC = () => {
     if (authError) {
       setAuthError(authError.message);
       setIsSaving(false);
-      return false;
+      return { success: false, message: authError.message };
     }
 
-    if (!authData.user) return false;
+    if (!authData.user) {
+      setIsSaving(false);
+      return { success: false, message: 'ユーザー作成に失敗しました。認証サービスを確認してください。' };
+    }
 
-    // 2. Initialize Tenant Data in Public Schema
     const newTenantId = `tenant_${Date.now()}`;
     const defaultClinicId = `c_${Date.now()}_hq`;
     const adminEmployeeId = `e_${Date.now()}_admin`;
@@ -127,9 +143,9 @@ const App: React.FC = () => {
       id: defaultClinicId,
       name: `${company} 本院`,
       type: ClinicType.HQ,
-      address: '',
-      phone: '',
-      chairs: 0
+      address: '東京都港区六本木',
+      phone: '03-0000-0000',
+      chairs: 5
     };
 
     const adminEmployee: Employee = {
@@ -149,21 +165,19 @@ const App: React.FC = () => {
       await db.upsertTenant(newTenantId, {
         id: newTenantId,
         name: company,
-        plan: 'Free',
+        plan: 'Pro',
         status: 'Active',
         ownerEmail: email,
         governance: GOVERNANCE_RULES
       });
       await db.upsertClinic(newTenantId, defaultClinic);
       await db.upsertEmployee(newTenantId, adminEmployee);
-
-      // Re-fetch to get the clean state
       await loadTenantData();
-      return true;
-    } catch (err) {
-      setAuthError("初期データの作成に失敗しました。管理者に連絡してください。");
-      console.error("Signup DB init failed", err);
-      return false;
+      return { success: true };
+    } catch (err: any) {
+      console.error(err);
+      setAuthError("初期データの作成に失敗しました。");
+      return { success: false, message: 'アカウントは作成されましたが、初期データの構築に失敗しました。' };
     } finally {
       setIsSaving(false);
     }
@@ -176,83 +190,45 @@ const App: React.FC = () => {
     setActiveTab('dashboard');
   };
 
-  // --- Data Mutation Actions ---
-  // (Remaining actions handleAddClinic etc. stay mostly same but now they operate on current session)
-  
+  // Mutation handlers... (Add/Update functions)
   const handleAddClinic = async (newClinic: Clinic) => {
     if (!currentUser || tenants.length === 0) return;
-    const tid = tenants[0].id;
     setIsSaving(true);
-    try {
-      await db.upsertClinic(tid, newClinic);
-      await loadTenantData();
-    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
+    try { await db.upsertClinic(tenants[0].id, newClinic); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
-
   const handleUpdateClinic = async (updatedClinic: Clinic) => {
     if (!currentUser || tenants.length === 0) return;
-    const tid = tenants[0].id;
     setIsSaving(true);
-    try {
-      await db.upsertClinic(tid, updatedClinic);
-      await loadTenantData();
-    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
+    try { await db.upsertClinic(tenants[0].id, updatedClinic); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
-
   const handleAddSystem = async (newSystem: SystemTool) => {
     if (!currentUser || tenants.length === 0) return;
-    const tid = tenants[0].id;
     setIsSaving(true);
-    try {
-      await db.upsertSystem(tid, newSystem);
-      await loadTenantData();
-    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
+    try { await db.upsertSystem(tenants[0].id, newSystem); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
-
   const handleUpdateSystem = async (updatedSystem: SystemTool) => {
     if (!currentUser || tenants.length === 0) return;
-    const tid = tenants[0].id;
     setIsSaving(true);
-    try {
-      await db.upsertSystem(tid, updatedSystem);
-      await loadTenantData();
-    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
+    try { await db.upsertSystem(tenants[0].id, updatedSystem); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
-
   const handleAddEmployee = async (newEmployee: Employee) => {
     if (!currentUser || tenants.length === 0) return;
-    const tid = tenants[0].id;
     setIsSaving(true);
-    try {
-      await db.upsertEmployee(tid, newEmployee);
-      await loadTenantData();
-    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
+    try { await db.upsertEmployee(tenants[0].id, newEmployee); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
-
   const handleUpdateEmployee = async (updatedEmployee: Employee) => {
     if (!currentUser || tenants.length === 0) return;
-    const tid = tenants[0].id;
     setIsSaving(true);
-    try {
-      await db.upsertEmployee(tid, updatedEmployee);
-      await loadTenantData();
-    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
+    try { await db.upsertEmployee(tenants[0].id, updatedEmployee); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
-
   const handleUpdateGovernance = async (newGovernance: GovernanceConfig) => {
     if (!currentUser || tenants.length === 0) return;
-    const tid = tenants[0].id;
     setIsSaving(true);
-    try {
-      await db.upsertTenant(tid, { governance: newGovernance });
-      await loadTenantData();
-    } catch (err) { alert("保存に失敗しました。"); } finally { setIsSaving(false); }
+    try { await db.upsertTenant(tenants[0].id, { governance: newGovernance }); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
 
-  const currentTenant = tenants[0]; // Multi-tenant support can be added later
+  const currentTenant = tenants[0];
 
-  // --- Rendering ---
-  
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-600">
@@ -274,9 +250,12 @@ const App: React.FC = () => {
     return (
       <div className="p-20 text-center flex flex-col items-center">
         <AlertCircle className="text-amber-500 mb-4" size={48} />
-        <h2 className="text-xl font-bold mb-2">テナントデータが見つかりません</h2>
-        <p className="text-slate-500 mb-6">アカウントは作成されましたが、初期設定が完了していない可能性があります。</p>
-        <button onClick={logout} className="text-blue-600 font-medium underline">一度ログアウトして再試行</button>
+        <h2 className="text-xl font-bold mb-2">テナント準備中</h2>
+        <p className="text-slate-500 mb-6">データベースとの同期を待機しています...</p>
+        <div className="flex gap-4">
+           <button onClick={loadTenantData} className="px-4 py-2 bg-blue-600 text-white rounded-lg">再読み込み</button>
+           <button onClick={logout} className="px-4 py-2 border border-slate-300 rounded-lg">ログアウト</button>
+        </div>
       </div>
     );
   }

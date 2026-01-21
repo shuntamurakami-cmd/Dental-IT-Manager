@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
-import { Database, Check, AlertCircle, Loader2 } from 'lucide-react';
+import { Database, Check, AlertCircle, Loader2, Info } from 'lucide-react';
+
+interface AuthResponse {
+  success: boolean;
+  message?: string;
+}
 
 interface AuthProps {
-  onLogin: (email: string, pass: string) => Promise<boolean>;
-  onSignup: (company: string, email: string, pass: string) => Promise<boolean>;
+  onLogin: (email: string, pass: string) => Promise<AuthResponse>;
+  onSignup: (company: string, email: string, pass: string) => Promise<AuthResponse>;
 }
 
 const Auth: React.FC<AuthProps> = ({ onLogin, onSignup }) => {
@@ -21,16 +26,20 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onSignup }) => {
 
     try {
       if (isLogin) {
-        const success = await onLogin(email, password);
-        if (!success) setError('ログインに失敗しました。メールアドレスとパスワードを確認してください。');
+        const result = await onLogin(email, password);
+        if (!result.success) {
+           setError(result.message || 'ログインに失敗しました。');
+        }
       } else {
         if (!companyName) {
            setError('法人名は必須です');
            setIsLoading(false);
            return;
         }
-        const success = await onSignup(companyName, email, password);
-        if (!success) setError('アカウント作成に失敗しました。パスワードは6文字以上必要です。');
+        const result = await onSignup(companyName, email, password);
+        if (!result.success) {
+          setError(result.message || 'アカウント作成に失敗しました。');
+        }
       }
     } catch (err: any) {
       setError(err.message || '予期せぬエラーが発生しました');
@@ -41,8 +50,9 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onSignup }) => {
 
   const fillDemoCreds = () => {
     setEmail('demo@whitedental.jp');
-    setPassword('demo1234'); // Updated to meet standard complexity
+    setPassword('demo1234');
     setIsLogin(true);
+    setError('');
   };
 
   return (
@@ -151,7 +161,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onSignup }) => {
                 {isLoading ? (
                   <>
                     <Loader2 size={18} className="animate-spin mr-2" />
-                    処理中...
+                    認証中...
                   </>
                 ) : (isLogin ? 'ログイン' : 'アカウント作成')}
               </button>
@@ -165,28 +175,33 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onSignup }) => {
                   <div className="w-full border-t border-slate-200" />
                 </div>
                 <div className="relative flex justify-center text-xs">
-                  <span className="px-3 bg-white text-slate-400 font-medium">
-                    デモ利用はこちら
+                  <span className="px-3 bg-white text-slate-400 font-medium uppercase tracking-wider">
+                    Quick Access
                   </span>
                 </div>
               </div>
 
-              <div className="mt-6">
+              <div className="mt-6 space-y-4">
                 <button
                   onClick={fillDemoCreds}
-                  className="w-full inline-flex justify-center items-center px-4 py-3 border border-slate-200 shadow-sm text-sm font-bold rounded-xl text-slate-700 bg-slate-50 hover:bg-slate-100 transition-colors"
+                  className="w-full inline-flex justify-center items-center px-4 py-3 border border-blue-200 shadow-sm text-sm font-bold rounded-xl text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
                 >
-                  <Check size={18} className="mr-2 text-emerald-500 font-bold" />
+                  <Check size={18} className="mr-2 text-blue-600" />
                   デモ環境を試す (White Dental)
                 </button>
+                <div className="flex items-start gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <Info size={14} className="text-slate-400 mt-0.5 shrink-0" />
+                  <p className="text-[10px] text-slate-500 leading-normal">
+                    初回クリック時にSupabase側でユーザーが自動作成されます。
+                  </p>
+                </div>
               </div>
             </div>
           )}
         </div>
         
         <p className="mt-8 text-center text-xs text-slate-400">
-          &copy; {new Date().getFullYear()} Dental IT Manager. All rights reserved.<br/>
-          Securely powered by Supabase Auth.
+          &copy; {new Date().getFullYear()} Dental IT Manager. Secure SaaS for Dentistry.
         </p>
       </div>
     </div>

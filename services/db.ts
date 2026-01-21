@@ -1,115 +1,168 @@
-import { Tenant } from '../types';
-import { CLINICS, EMPLOYEES, SYSTEMS, GOVERNANCE_RULES } from '../constants';
+import { Tenant, Clinic, SystemTool, Employee, GovernanceConfig, StaffRole, EmploymentType, ClinicType } from '../types';
 import { supabase } from './supabase';
 
-const STORAGE_KEY = 'dental_it_manager_data';
-const SUPABASE_TABLE = 'json_storage';
-const SUPABASE_ROW_KEY = 'dental_data_v1'; // Key to identify this app's data in the table
+/**
+ * Data Mappers: Convert between DB (snake_case) and Frontend (camelCase)
+ */
+const mapDBToClinic = (row: any): Clinic => ({
+  id: row.id,
+  name: row.name,
+  type: row.type as ClinicType,
+  address: row.address || '',
+  phone: row.phone || '',
+  chairs: row.chairs || 0
+});
 
-// Demo Data (Fallback)
-const DEMO_TENANT_ID = 'tenant_demo_001';
-const INITIAL_TENANTS: Tenant[] = [
-  {
-    id: DEMO_TENANT_ID,
-    name: 'ホワイトデンタルクリニック',
-    plan: 'Pro',
-    status: 'Active',
-    createdAt: '2023-04-01',
-    ownerEmail: 'demo@whitedental.jp',
-    clinics: CLINICS,
-    systems: SYSTEMS,
-    employees: EMPLOYEES,
-    governance: GOVERNANCE_RULES
-  },
-  {
-    id: 'tenant_sample_002',
-    name: 'スマイル矯正歯科',
-    plan: 'Enterprise',
-    status: 'Active',
-    createdAt: '2024-01-15',
-    ownerEmail: 'admin@smile-ortho.jp',
-    clinics: [
-      { id: 'c_s_1', name: 'スマイル矯正歯科 渋谷', type: '本院' as any, address: '東京都渋谷区', chairs: 12, phone: '03-9999-8888' }
-    ],
-    systems: [SYSTEMS[0]], // Only Google Workspace
-    employees: [EMPLOYEES[0], EMPLOYEES[1]],
-    governance: GOVERNANCE_RULES
-  }
-];
+const mapDBToSystem = (row: any): SystemTool => ({
+  id: row.id,
+  name: row.name,
+  category: row.category || '',
+  url: row.url || '',
+  monthlyCostPerUser: row.monthly_cost_per_user || 0,
+  baseMonthlyCost: row.base_monthly_cost || 0,
+  renewalDate: row.renewal_date || '',
+  adminOwner: row.admin_owner || '',
+  vendorContact: row.vendor_contact || '',
+  status: row.status as any,
+  issues: row.issues || []
+});
+
+const mapDBToEmployee = (row: any, assignedSystems: string[]): Employee => ({
+  id: row.id,
+  firstName: row.first_name,
+  lastName: row.last_name,
+  clinicId: row.clinic_id || '',
+  role: row.role as StaffRole,
+  employmentType: row.employment_type as EmploymentType,
+  email: row.email || '',
+  joinDate: row.join_date || '',
+  assignedSystems: assignedSystems,
+  status: row.status as any
+});
 
 export const db = {
-  // Load data (GET) - Now Async
+  // Load all data (Hydrate)
   getTenants: async (): Promise<Tenant[]> => {
-    try {
-      // 1. Try fetching from Supabase
-      const { data, error } = await supabase
-        .from(SUPABASE_TABLE)
-        .select('value')
-        .eq('key', SUPABASE_ROW_KEY)
-        .single();
+    // 1. Fetch Tenants
+    const { data: dbTenants, error: tError } = await supabase.from('tenants').select('*');
+    if (tError) throw tError;
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "Row not found"
-        console.error('Supabase fetch error:', error);
-      }
+    const tenants: Tenant[] = [];
 
-      if (data && data.value) {
-        console.log('Loaded data from Supabase');
-        // Simple migration check: ensure governance exists
-        const tenants = data.value as Tenant[];
-        return tenants.map(t => ({
-          ...t,
-          governance: t.governance || GOVERNANCE_RULES
-        }));
-      }
+    for (const t of dbTenants) {
+      // 2. Fetch related data for each tenant
+      const [
+        { data: dbClinics },
+        { data: dbSystems },
+        { data: dbEmployees },
+        { data: dbAssignments }
+      ] = await Promise.all([
+        supabase.from('clinics').select('*').eq('tenant_id', t.id),
+        supabase.from('systems').select('*').eq('tenant_id', t.id),
+        supabase.from('employees').select('*').eq('tenant_id', t.id),
+        supabase.from('employee_assigned_systems').select('employee_id, system_id')
+      ]);
 
-      // 2. Fallback to LocalStorage if Supabase is empty or failed
-      const localData = localStorage.getItem(STORAGE_KEY);
-      if (localData) {
-        console.log('Loaded data from LocalStorage (Fallback)');
-        const tenants = JSON.parse(localData) as Tenant[];
-        return tenants.map(t => ({
-          ...t,
-          governance: t.governance || GOVERNANCE_RULES
-        }));
-      }
+      const clinics = (dbClinics || []).map(mapDBToClinic);
+      const systems = (dbSystems || []).map(mapDBToSystem);
       
-    } catch (e) {
-      console.error('Failed to load data', e);
+      const employees = (dbEmployees || []).map(emp => {
+        const assigned = (dbAssignments || [])
+          .filter(a => a.employee_id === emp.id)
+          .map(a => a.system_id);
+        return mapDBToEmployee(emp, assigned);
+      });
+
+      tenants.push({
+        id: t.id,
+        name: t.name,
+        plan: t.plan,
+        status: t.status as any,
+        createdAt: t.created_at,
+        ownerEmail: t.owner_email,
+        clinics,
+        systems,
+        employees,
+        governance: t.governance as GovernanceConfig
+      });
     }
 
-    // 3. Default Initial Data
-    console.log('Loaded Initial Demo Data');
-    return INITIAL_TENANTS;
+    return tenants;
   },
 
-  // Save data (Upsert) - Now Async
-  saveTenants: async (tenants: Tenant[]) => {
-    try {
-      // 1. Save to LocalStorage (Immediate backup)
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(tenants));
+  // --- Specific Mutations ---
 
-      // 2. Save to Supabase
-      const { error } = await supabase
-        .from(SUPABASE_TABLE)
-        .upsert({ 
-          key: SUPABASE_ROW_KEY, 
-          value: tenants 
-        });
+  upsertTenant: async (tenantId: string, data: Partial<Tenant>) => {
+    const dbData: any = {};
+    if (data.name) dbData.name = data.name;
+    if (data.plan) dbData.plan = data.plan;
+    if (data.governance) dbData.governance = data.governance;
+    if (data.status) dbData.status = data.status;
 
-      if (error) {
-        console.error('Supabase save error:', error);
-      } else {
-        // console.log('Saved to Supabase');
-      }
-    } catch (e) {
-      console.error('Failed to save data', e);
+    await supabase.from('tenants').upsert({ id: tenantId, ...dbData });
+  },
+
+  upsertClinic: async (tenantId: string, clinic: Clinic) => {
+    await supabase.from('clinics').upsert({
+      id: clinic.id,
+      tenant_id: tenantId,
+      name: clinic.name,
+      type: clinic.type,
+      address: clinic.address,
+      phone: clinic.phone,
+      chairs: clinic.chairs
+    });
+  },
+
+  upsertSystem: async (tenantId: string, system: SystemTool) => {
+    await supabase.from('systems').upsert({
+      id: system.id,
+      tenant_id: tenantId,
+      name: system.name,
+      category: system.category,
+      url: system.url,
+      status: system.status,
+      base_monthly_cost: system.baseMonthlyCost,
+      monthly_cost_per_user: system.monthlyCostPerUser,
+      renewal_date: system.renewalDate,
+      admin_owner: system.adminOwner,
+      vendor_contact: system.vendorContact,
+      issues: system.issues
+    });
+  },
+
+  upsertEmployee: async (tenantId: string, employee: Employee) => {
+    // 1. Update basic info
+    const { error: empError } = await supabase.from('employees').upsert({
+      id: employee.id,
+      tenant_id: tenantId,
+      clinic_id: employee.clinicId || null,
+      first_name: employee.firstName,
+      last_name: employee.lastName,
+      email: employee.email,
+      role: employee.role,
+      employment_type: employee.employmentType,
+      status: employee.status,
+      join_date: employee.joinDate
+    });
+
+    if (empError) throw empError;
+
+    // 2. Update assignments (Delete then Insert)
+    await supabase.from('employee_assigned_systems').delete().eq('employee_id', employee.id);
+    if (employee.assignedSystems.length > 0) {
+      const assignments = employee.assignedSystems.map(sysId => ({
+        employee_id: employee.id,
+        system_id: sysId
+      }));
+      await supabase.from('employee_assigned_systems').insert(assignments);
     }
   },
 
-  // Reset to initial state
+  // Initial dummy reset not supported in relational mode for security, 
+  // but we can provide a method to re-insert demo data if needed.
   reset: async () => {
-    localStorage.removeItem(STORAGE_KEY);
-    await db.saveTenants(INITIAL_TENANTS);
-    return INITIAL_TENANTS;
+    console.warn("Reset method not fully implemented for relational mode. Please use SQL Editor.");
+    return [];
   }
 };

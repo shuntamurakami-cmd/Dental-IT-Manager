@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './components/views/Dashboard';
 import ClinicManagement from './components/views/ClinicManagement';
@@ -8,8 +8,8 @@ import CostAnalysis from './components/views/CostAnalysis';
 import Governance from './components/views/Governance';
 import Auth from './components/Auth';
 import SuperAdminDashboard from './components/views/SuperAdminDashboard';
-import { Upload, RotateCcw, Download, FileJson, Cloud, Loader2 } from 'lucide-react';
-import { AppState, Tenant, User, UserRole, Clinic, SystemTool, Employee, GovernanceConfig, ClinicType, StaffRole, EmploymentType } from './types';
+import { Upload, RotateCcw, Download, Cloud, Loader2 } from 'lucide-react';
+import { Tenant, User, UserRole, Clinic, SystemTool, Employee, GovernanceConfig, ClinicType, StaffRole, EmploymentType } from './types';
 import { db } from './services/db';
 import { GOVERNANCE_RULES } from './constants';
 
@@ -20,8 +20,6 @@ const App: React.FC = () => {
   
   // Auth & Data State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  
-  // Data State
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -30,31 +28,17 @@ const App: React.FC = () => {
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
-      const data = await db.getTenants();
-      setTenants(data);
-      setIsLoading(false);
+      try {
+        const data = await db.getTenants();
+        setTenants(data);
+      } catch (err) {
+        console.error("Failed to load initial data from DB", err);
+      } finally {
+        setIsLoading(false);
+      }
     };
     loadData();
   }, []);
-
-  // Save to DB Service whenever tenants change (Debounced)
-  const isFirstRender = useRef(true);
-  useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
-
-    const save = async () => {
-      setIsSaving(true);
-      await db.saveTenants(tenants);
-      setIsSaving(false);
-    };
-
-    // Simple debounce to prevent too many API calls
-    const timeoutId = setTimeout(save, 1000);
-    return () => clearTimeout(timeoutId);
-  }, [tenants]);
 
   // Derived state for current tenant data
   const currentTenant = tenants.find(t => t.id === currentUser?.tenantId);
@@ -74,40 +58,30 @@ const App: React.FC = () => {
       return true;
     }
 
-    if (email === 'demo@whitedental.jp' && pass === 'demo') {
-      setCurrentUser({
-        id: 'user_demo_01',
-        email,
-        name: '管理者 アカウント',
-        role: UserRole.CLIENT_ADMIN,
-        tenantId: 'tenant_demo_001'
-      });
-      return true;
-    }
-
+    // Try finding tenant in the loaded data
     const matchedTenant = tenants.find(t => t.ownerEmail === email);
-    if (matchedTenant) {
+    if (matchedTenant || (email === 'demo@whitedental.jp' && pass === 'demo')) {
+       const tid = matchedTenant ? matchedTenant.id : 'tenant_demo_001';
        setCurrentUser({
-         id: `user_${matchedTenant.id}`,
+         id: `user_${tid}`,
          email,
-         name: `${matchedTenant.name} 管理者`,
+         name: matchedTenant ? `${matchedTenant.name} 管理者` : '管理者 アカウント',
          role: UserRole.CLIENT_ADMIN,
-         tenantId: matchedTenant.id
+         tenantId: tid
        });
        return true;
     }
-
     return false;
   };
 
   const signup = async (company: string, email: string, pass: string): Promise<boolean> => {
-    await new Promise(resolve => setTimeout(resolve, 800));
-
+    setIsSaving(true);
     const newTenantId = `tenant_${Date.now()}`;
-    
-    // 1. Create Default Clinic (HQ)
+    const defaultClinicId = `c_${Date.now()}_hq`;
+    const adminEmployeeId = `e_${Date.now()}_admin`;
+
     const defaultClinic: Clinic = {
-      id: `c_${Date.now()}_hq`,
+      id: defaultClinicId,
       name: `${company} 本院`,
       type: ClinicType.HQ,
       address: '',
@@ -115,12 +89,11 @@ const App: React.FC = () => {
       chairs: 0
     };
 
-    // 2. Create Admin Employee Record
     const adminEmployee: Employee = {
-      id: `e_${Date.now()}_admin`,
+      id: adminEmployeeId,
       firstName: '管理者',
       lastName: '（初期）',
-      clinicId: defaultClinic.id,
+      clinicId: defaultClinicId,
       role: StaffRole.SYSADMIN,
       employmentType: EmploymentType.FULL_TIME,
       email: email,
@@ -142,17 +115,27 @@ const App: React.FC = () => {
       governance: GOVERNANCE_RULES
     };
 
-    setTenants(prev => [...prev, newTenant]);
-    
-    setCurrentUser({
-      id: `user_${newTenantId}`,
-      email,
-      name: `${company} 管理者`,
-      role: UserRole.CLIENT_ADMIN,
-      tenantId: newTenantId
-    });
+    try {
+      // Create in DB (Relational)
+      await db.upsertTenant(newTenantId, newTenant);
+      await db.upsertClinic(newTenantId, defaultClinic);
+      await db.upsertEmployee(newTenantId, adminEmployee);
 
-    return true;
+      setTenants(prev => [...prev, newTenant]);
+      setCurrentUser({
+        id: `user_${newTenantId}`,
+        email,
+        name: `${company} 管理者`,
+        role: UserRole.CLIENT_ADMIN,
+        tenantId: newTenantId
+      });
+      return true;
+    } catch (err) {
+      console.error("Signup failed", err);
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const logout = () => {
@@ -160,136 +143,133 @@ const App: React.FC = () => {
     setActiveTab('dashboard');
   };
 
-  const resetData = async () => {
-    if (confirm('現在のデータを全て削除し、初期デモデータに戻しますか？この操作は取り消せません。')) {
-      setIsLoading(true);
-      const initial = await db.reset();
-      setTenants(initial);
-      setIsLoading(false);
-      alert('データをリセットしました。');
+  // --- Data Mutation Actions (Atomic Updates) ---
+  
+  const handleAddClinic = async (newClinic: Clinic) => {
+    if (!currentUser || !currentTenant) return;
+    setIsSaving(true);
+    try {
+      await db.upsertClinic(currentTenant.id, newClinic);
+      setTenants(prev => prev.map(t => {
+        if (t.id === currentTenant.id) return { ...t, clinics: [...t.clinics, newClinic] };
+        return t;
+      }));
+    } catch (err) {
+      alert("保存に失敗しました。");
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  // --- Backup & Restore Actions ---
-  const handleExport = () => {
-    const dataStr = JSON.stringify(tenants, null, 2);
-    const blob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `dental_it_manager_backup_${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const json = e.target?.result as string;
-        const parsedData = JSON.parse(json);
-        // Simple validation check
-        if (Array.isArray(parsedData) && parsedData.length > 0 && parsedData[0].id) {
-          if (confirm('現在のデータを上書きして、バックアップデータを復元しますか？\n（現在の未保存データは失われます）')) {
-            setTenants(parsedData);
-            setShowImportModal(false);
-            alert('データの復元が完了しました。');
-          }
-        } else {
-          alert('無効なデータ形式です。Dental IT Managerのバックアップファイルを選択してください。');
+  const handleUpdateClinic = async (updatedClinic: Clinic) => {
+    if (!currentUser || !currentTenant) return;
+    setIsSaving(true);
+    try {
+      await db.upsertClinic(currentTenant.id, updatedClinic);
+      setTenants(prev => prev.map(t => {
+        if (t.id === currentTenant.id) {
+          return { 
+            ...t, 
+            clinics: t.clinics.map(c => c.id === updatedClinic.id ? updatedClinic : c) 
+          };
         }
-      } catch (err) {
-        console.error(err);
-        alert('ファイルの読み込みに失敗しました。');
-      }
-    };
-    reader.readAsText(file);
+        return t;
+      }));
+    } catch (err) {
+      alert("保存に失敗しました。");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  // --- Data Mutation Actions (Create & Update) ---
-  
-  // Clinics
-  const handleAddClinic = (newClinic: Clinic) => {
+  const handleAddSystem = async (newSystem: SystemTool) => {
     if (!currentUser || !currentTenant) return;
-    setTenants(prev => prev.map(t => {
-      if (t.id === currentTenant.id) return { ...t, clinics: [...t.clinics, newClinic] };
-      return t;
-    }));
+    setIsSaving(true);
+    try {
+      await db.upsertSystem(currentTenant.id, newSystem);
+      setTenants(prev => prev.map(t => {
+        if (t.id === currentTenant.id) return { ...t, systems: [...t.systems, newSystem] };
+        return t;
+      }));
+    } catch (err) {
+      alert("保存に失敗しました。");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleUpdateClinic = (updatedClinic: Clinic) => {
+  const handleUpdateSystem = async (updatedSystem: SystemTool) => {
     if (!currentUser || !currentTenant) return;
-    setTenants(prev => prev.map(t => {
-      if (t.id === currentTenant.id) {
-        return { 
-          ...t, 
-          clinics: t.clinics.map(c => c.id === updatedClinic.id ? updatedClinic : c) 
-        };
-      }
-      return t;
-    }));
+    setIsSaving(true);
+    try {
+      await db.upsertSystem(currentTenant.id, updatedSystem);
+      setTenants(prev => prev.map(t => {
+        if (t.id === currentTenant.id) {
+          return { 
+            ...t, 
+            systems: t.systems.map(s => s.id === updatedSystem.id ? updatedSystem : s) 
+          };
+        }
+        return t;
+      }));
+    } catch (err) {
+      alert("保存に失敗しました。");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  // Systems
-  const handleAddSystem = (newSystem: SystemTool) => {
+  const handleAddEmployee = async (newEmployee: Employee) => {
     if (!currentUser || !currentTenant) return;
-    setTenants(prev => prev.map(t => {
-      if (t.id === currentTenant.id) return { ...t, systems: [...t.systems, newSystem] };
-      return t;
-    }));
+    setIsSaving(true);
+    try {
+      await db.upsertEmployee(currentTenant.id, newEmployee);
+      setTenants(prev => prev.map(t => {
+        if (t.id === currentTenant.id) return { ...t, employees: [...t.employees, newEmployee] };
+        return t;
+      }));
+    } catch (err) {
+      alert("保存に失敗しました。");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleUpdateSystem = (updatedSystem: SystemTool) => {
+  const handleUpdateEmployee = async (updatedEmployee: Employee) => {
     if (!currentUser || !currentTenant) return;
-    setTenants(prev => prev.map(t => {
-      if (t.id === currentTenant.id) {
-        return { 
-          ...t, 
-          systems: t.systems.map(s => s.id === updatedSystem.id ? updatedSystem : s) 
-        };
-      }
-      return t;
-    }));
+    setIsSaving(true);
+    try {
+      await db.upsertEmployee(currentTenant.id, updatedEmployee);
+      setTenants(prev => prev.map(t => {
+        if (t.id === currentTenant.id) {
+          return { 
+            ...t, 
+            employees: t.employees.map(e => e.id === updatedEmployee.id ? updatedEmployee : e) 
+          };
+        }
+        return t;
+      }));
+    } catch (err) {
+      alert("保存に失敗しました。");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  // Employees
-  const handleAddEmployee = (newEmployee: Employee) => {
+  const handleUpdateGovernance = async (newGovernance: GovernanceConfig) => {
     if (!currentUser || !currentTenant) return;
-    setTenants(prev => prev.map(t => {
-      if (t.id === currentTenant.id) return { ...t, employees: [...t.employees, newEmployee] };
-      return t;
-    }));
-  };
-
-  const handleUpdateEmployee = (updatedEmployee: Employee) => {
-    if (!currentUser || !currentTenant) return;
-    setTenants(prev => prev.map(t => {
-      if (t.id === currentTenant.id) {
-        return { 
-          ...t, 
-          employees: t.employees.map(e => e.id === updatedEmployee.id ? updatedEmployee : e) 
-        };
-      }
-      return t;
-    }));
-  };
-
-  // Governance
-  const handleUpdateGovernance = (newGovernance: GovernanceConfig) => {
-    if (!currentUser || !currentTenant) return;
-    setTenants(prev => prev.map(t => {
-      if (t.id === currentTenant.id) {
-        return { 
-          ...t, 
-          governance: newGovernance
-        };
-      }
-      return t;
-    }));
+    setIsSaving(true);
+    try {
+      await db.upsertTenant(currentTenant.id, { governance: newGovernance });
+      setTenants(prev => prev.map(t => {
+        if (t.id === currentTenant.id) return { ...t, governance: newGovernance };
+        return t;
+      }));
+    } catch (err) {
+      alert("保存に失敗しました。");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // --- Rendering ---
@@ -299,7 +279,7 @@ const App: React.FC = () => {
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
          <p className="text-slate-600 font-medium">データを読み込み中...</p>
-         <p className="text-xs text-slate-400 mt-2">Connecting to Supabase...</p>
+         <p className="text-xs text-slate-400 mt-2">Connecting to Supabase Database...</p>
       </div>
     );
   }
@@ -312,8 +292,7 @@ const App: React.FC = () => {
     return <SuperAdminDashboard tenants={tenants} onLogout={logout} />;
   }
 
-  // Safety check
-  if (!currentTenant) return <div>Error loading tenant data</div>;
+  if (!currentTenant) return <div className="p-20 text-center">テナントデータが見つかりません</div>;
 
   const renderContent = () => {
     switch (activeTab) {
@@ -370,73 +349,14 @@ const App: React.FC = () => {
     >
       <div className="mb-4 flex flex-col md:flex-row justify-between items-end md:items-center gap-2">
          <div className="flex items-center space-x-2">
-            <div className={`flex items-center text-xs px-3 py-1.5 rounded-full transition-colors ${isSaving ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+            <div className={`flex items-center text-xs px-3 py-1.5 rounded-full transition-colors ${isSaving ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
                 {isSaving ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Cloud size={14} className="mr-1.5" />}
-                <span>{isSaving ? 'Saving to Supabase...' : 'Supabase Connected'}</span>
+                <span>{isSaving ? 'Saving to Database...' : 'Relational DB Connected'}</span>
             </div>
-         </div>
-         <div className="flex space-x-2">
-            <button 
-              onClick={resetData}
-              className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
-              title="データを初期状態に戻す"
-            >
-              <RotateCcw size={14} className="mr-1.5" />
-              リセット
-            </button>
-            <button 
-              onClick={handleExport}
-              className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-              title="現在のデータをファイルに保存"
-            >
-              <Download size={14} className="mr-1.5" />
-              保存
-            </button>
-            <button 
-              onClick={() => setShowImportModal(true)}
-              className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
-              title="バックアップファイルから復元"
-            >
-              <Upload size={14} className="mr-1.5" />
-              復元
-            </button>
          </div>
       </div>
 
       {renderContent()}
-
-      {/* Import Modal */}
-      {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
-            <h3 className="text-lg font-bold text-slate-900 mb-2">データ復元（インポート）</h3>
-            <p className="text-sm text-slate-600 mb-6">
-              以前保存したバックアップファイル（.json）を選択してください。<br/>
-              <span className="text-red-500 font-bold">※現在のデータは上書きされます。</span>
-            </p>
-            
-            <label className="block w-full border-2 border-dashed border-slate-300 rounded-lg p-8 text-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
-              <input 
-                type="file" 
-                accept=".json"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-              <FileJson className="mx-auto h-10 w-10 text-slate-400" />
-              <p className="mt-2 text-sm text-slate-500">クリックしてJSONファイルを選択</p>
-            </label>
-
-            <div className="mt-6 flex justify-end space-x-3">
-              <button 
-                onClick={() => setShowImportModal(false)}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm font-medium"
-              >
-                キャンセル
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </Layout>
   );
 };

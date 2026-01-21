@@ -25,8 +25,11 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onSignup }) => {
     setIsLoading(true);
 
     try {
+      const cleanEmail = email.trim();
+      const cleanPass = password.trim();
+
       if (isLogin) {
-        const result = await onLogin(email, password);
+        const result = await onLogin(cleanEmail, cleanPass);
         if (!result.success) {
            setError(result.message || 'ログインに失敗しました。');
         }
@@ -36,7 +39,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onSignup }) => {
            setIsLoading(false);
            return;
         }
-        const result = await onSignup(companyName, email, password);
+        const result = await onSignup(companyName, cleanEmail, cleanPass);
         if (!result.success) {
           setError(result.message || 'アカウント作成に失敗しました。');
         }

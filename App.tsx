@@ -8,11 +8,11 @@ import CostAnalysis from './components/views/CostAnalysis';
 import Governance from './components/views/Governance';
 import Auth from './components/Auth';
 import SuperAdminDashboard from './components/views/SuperAdminDashboard';
-import { Cloud, Loader2, AlertCircle } from 'lucide-react';
+import { Cloud, Loader2, AlertCircle, WifiOff } from 'lucide-react';
 import { Tenant, User, UserRole, Clinic, SystemTool, Employee, GovernanceConfig, ClinicType, StaffRole, EmploymentType } from './types';
 import { db } from './services/db';
 import { supabase } from './services/supabase';
-import { GOVERNANCE_RULES } from './constants';
+import { GOVERNANCE_RULES, CLINICS, SYSTEMS, EMPLOYEES } from './constants';
 
 const App: React.FC = () => {
   // --- Global State ---
@@ -22,6 +22,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   // 1. Listen for Auth State Changes
   useEffect(() => {
@@ -37,14 +38,17 @@ const App: React.FC = () => {
       if (session?.user) {
         handleSetUserFromSession(session.user);
       } else {
-        setCurrentUser(null);
-        setTenants([]);
-        setIsLoading(false);
+        // Only reset if we are not in offline demo mode
+        if (!isOfflineMode) {
+          setCurrentUser(null);
+          setTenants([]);
+          setIsLoading(false);
+        }
       }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [isOfflineMode]);
 
   const handleSetUserFromSession = (supabaseUser: any) => {
     const isSuperAdmin = supabaseUser.email === 'admin@saas-provider.com';
@@ -55,13 +59,14 @@ const App: React.FC = () => {
       role: isSuperAdmin ? UserRole.SUPER_ADMIN : UserRole.CLIENT_ADMIN,
       tenantId: supabaseUser.user_metadata?.tenant_id || 'pending'
     });
+    setIsOfflineMode(false);
   };
 
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser && !isOfflineMode) {
       loadTenantData();
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, isOfflineMode]);
 
   const loadTenantData = async () => {
     setIsLoading(true);
@@ -78,34 +83,68 @@ const App: React.FC = () => {
     }
   };
 
+  // --- Offline / Demo Mode Initializer ---
+  const startOfflineDemo = () => {
+    setIsOfflineMode(true);
+    
+    // Create Mock User
+    const demoUser: User = {
+      id: 'demo-user-id',
+      email: 'demo@whitedental.jp',
+      name: 'Demo Admin',
+      role: UserRole.CLIENT_ADMIN,
+      tenantId: 'demo-tenant-id'
+    };
+
+    // Create Mock Tenant Data from Constants
+    const demoTenant: Tenant = {
+      id: 'demo-tenant-id',
+      name: 'White Dental Group (Demo)',
+      plan: 'Pro',
+      status: 'Active',
+      createdAt: new Date().toISOString(),
+      ownerEmail: 'demo@whitedental.jp',
+      clinics: CLINICS,
+      systems: SYSTEMS,
+      employees: EMPLOYEES,
+      governance: GOVERNANCE_RULES
+    };
+
+    setTenants([demoTenant]);
+    setCurrentUser(demoUser);
+    setIsLoading(false);
+    return { success: true };
+  };
+
   // --- Auth Actions ---
   
   const login = async (email: string, pass: string): Promise<{ success: boolean; message?: string }> => {
     setAuthError(null);
+    
+    // Attempt Real Login
     const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
     
-    // If login fails and it's the demo account, try to auto-signup to facilitate the demo experience
-    if (error && email === 'demo@whitedental.jp') {
-      console.log("Demo user not found or password incorrect. Attempting auto-provisioning...");
+    // DEMO FALLBACK LOGIC
+    if (email === 'demo@whitedental.jp') {
+      // If successful, great. If error (any error), we try to provision or fallback to offline.
+      if (!error && data.user) return { success: true };
+
+      console.log("Demo login failed or rejected. Attempting auto-provisioning...");
       
+      // Try to sign up (Auto-provisioning)
       const signupResult = await signup('White Dental Group', email, pass);
       
-      // If signup failed, it might be because the user exists but password was wrong in the first place
-      if (!signupResult.success) {
-        if (signupResult.message?.includes('registered') || signupResult.message?.includes('already exists')) {
-          return { 
-            success: false, 
-            message: "デモアカウントは既に存在しますが、パスワードが一致しません。'demo1234'を使用してください。" 
-          };
-        }
-        return signupResult;
-      }
-      return { success: true };
+      if (signupResult.success) return { success: true };
+
+      // If signup also failed (e.g. invalid email format, rate limit, blocked IP), 
+      // FORCE OFFLINE MODE so the user can see the app.
+      console.warn("Backend auth failed for demo. Starting Offline Mode.");
+      return startOfflineDemo();
     }
 
     if (error) {
       setAuthError(error.message);
-      let msg = 'ログインに失敗しました。メールアドレスとパスワードを確認してください。';
+      let msg = 'ログインに失敗しました。';
       if (error.message.includes('Invalid login credentials')) msg = 'メールアドレスまたはパスワードが間違っています。';
       return { success: false, message: msg };
     }
@@ -125,16 +164,18 @@ const App: React.FC = () => {
     });
 
     if (authError) {
-      setAuthError(authError.message);
       setIsSaving(false);
+      // If it's the demo account and it says "already registered" or "invalid", 
+      // we return failure here but let the login function handle the fallback.
       return { success: false, message: authError.message };
     }
 
     if (!authData.user) {
       setIsSaving(false);
-      return { success: false, message: 'ユーザー作成に失敗しました。認証サービスを確認してください。' };
+      return { success: false, message: 'ユーザー作成に失敗しました。' };
     }
 
+    // Prepare initial data
     const newTenantId = `tenant_${Date.now()}`;
     const defaultClinicId = `c_${Date.now()}_hq`;
     const adminEmployeeId = `e_${Date.now()}_admin`;
@@ -172,59 +213,136 @@ const App: React.FC = () => {
       });
       await db.upsertClinic(newTenantId, defaultClinic);
       await db.upsertEmployee(newTenantId, adminEmployee);
-      await loadTenantData();
+      
+      // If not offline, load data
+      if (!isOfflineMode) await loadTenantData();
+      
       return { success: true };
     } catch (err: any) {
       console.error(err);
-      setAuthError("初期データの作成に失敗しました。");
-      return { success: false, message: 'アカウントは作成されましたが、初期データの構築に失敗しました。' };
+      return { success: false, message: '初期データの構築に失敗しました。' };
     } finally {
       setIsSaving(false);
     }
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
+    if (!isOfflineMode) {
+      await supabase.auth.signOut();
+    }
     setCurrentUser(null);
     setTenants([]);
+    setIsOfflineMode(false);
     setActiveTab('dashboard');
   };
 
-  // Mutation handlers... (Add/Update functions)
+  // --- Mutation Handlers (Offline Compatible) ---
+  
+  // Helper to update local state in offline mode
+  const updateLocalTenant = (updater: (tenant: Tenant) => Tenant) => {
+    setTenants(prev => {
+      if (prev.length === 0) return prev;
+      const updated = { ...prev[0] };
+      return [updater(updated)];
+    });
+  };
+
   const handleAddClinic = async (newClinic: Clinic) => {
     if (!currentUser || tenants.length === 0) return;
     setIsSaving(true);
-    try { await db.upsertClinic(tenants[0].id, newClinic); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
+    try { 
+      if (isOfflineMode) {
+        updateLocalTenant(t => ({ ...t, clinics: [...t.clinics, newClinic] }));
+        await new Promise(r => setTimeout(r, 500)); // Fake delay
+      } else {
+        await db.upsertClinic(tenants[0].id, newClinic); 
+        await loadTenantData(); 
+      }
+    } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
+
   const handleUpdateClinic = async (updatedClinic: Clinic) => {
     if (!currentUser || tenants.length === 0) return;
     setIsSaving(true);
-    try { await db.upsertClinic(tenants[0].id, updatedClinic); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
+    try { 
+      if (isOfflineMode) {
+        updateLocalTenant(t => ({ ...t, clinics: t.clinics.map(c => c.id === updatedClinic.id ? updatedClinic : c) }));
+        await new Promise(r => setTimeout(r, 500));
+      } else {
+        await db.upsertClinic(tenants[0].id, updatedClinic); 
+        await loadTenantData(); 
+      }
+    } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
+
   const handleAddSystem = async (newSystem: SystemTool) => {
     if (!currentUser || tenants.length === 0) return;
     setIsSaving(true);
-    try { await db.upsertSystem(tenants[0].id, newSystem); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
+    try { 
+      if (isOfflineMode) {
+        updateLocalTenant(t => ({ ...t, systems: [...t.systems, newSystem] }));
+        await new Promise(r => setTimeout(r, 500));
+      } else {
+        await db.upsertSystem(tenants[0].id, newSystem); 
+        await loadTenantData(); 
+      }
+    } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
+
   const handleUpdateSystem = async (updatedSystem: SystemTool) => {
     if (!currentUser || tenants.length === 0) return;
     setIsSaving(true);
-    try { await db.upsertSystem(tenants[0].id, updatedSystem); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
+    try { 
+      if (isOfflineMode) {
+        updateLocalTenant(t => ({ ...t, systems: t.systems.map(s => s.id === updatedSystem.id ? updatedSystem : s) }));
+        await new Promise(r => setTimeout(r, 500));
+      } else {
+        await db.upsertSystem(tenants[0].id, updatedSystem); 
+        await loadTenantData(); 
+      }
+    } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
+
   const handleAddEmployee = async (newEmployee: Employee) => {
     if (!currentUser || tenants.length === 0) return;
     setIsSaving(true);
-    try { await db.upsertEmployee(tenants[0].id, newEmployee); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
+    try { 
+      if (isOfflineMode) {
+        updateLocalTenant(t => ({ ...t, employees: [...t.employees, newEmployee] }));
+        await new Promise(r => setTimeout(r, 500));
+      } else {
+        await db.upsertEmployee(tenants[0].id, newEmployee); 
+        await loadTenantData(); 
+      }
+    } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
+
   const handleUpdateEmployee = async (updatedEmployee: Employee) => {
     if (!currentUser || tenants.length === 0) return;
     setIsSaving(true);
-    try { await db.upsertEmployee(tenants[0].id, updatedEmployee); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
+    try { 
+      if (isOfflineMode) {
+        updateLocalTenant(t => ({ ...t, employees: t.employees.map(e => e.id === updatedEmployee.id ? updatedEmployee : e) }));
+        await new Promise(r => setTimeout(r, 500));
+      } else {
+        await db.upsertEmployee(tenants[0].id, updatedEmployee); 
+        await loadTenantData(); 
+      }
+    } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
+
   const handleUpdateGovernance = async (newGovernance: GovernanceConfig) => {
     if (!currentUser || tenants.length === 0) return;
     setIsSaving(true);
-    try { await db.upsertTenant(tenants[0].id, { governance: newGovernance }); await loadTenantData(); } catch (err) { alert("Error"); } finally { setIsSaving(false); }
+    try { 
+      if (isOfflineMode) {
+        updateLocalTenant(t => ({ ...t, governance: newGovernance }));
+        await new Promise(r => setTimeout(r, 500));
+      } else {
+        await db.upsertTenant(tenants[0].id, { governance: newGovernance }); 
+        await loadTenantData(); 
+      }
+    } catch (err) { alert("Error"); } finally { setIsSaving(false); }
   };
 
   const currentTenant = tenants[0];
@@ -242,7 +360,7 @@ const App: React.FC = () => {
     return <Auth onLogin={login} onSignup={signup} />;
   }
 
-  if (currentUser.role === UserRole.SUPER_ADMIN) {
+  if (currentUser.role === UserRole.SUPER_ADMIN && !isOfflineMode) {
     return <SuperAdminDashboard tenants={tenants} onLogout={logout} />;
   }
 
@@ -276,9 +394,27 @@ const App: React.FC = () => {
     <Layout activeTab={activeTab} onTabChange={setActiveTab} user={currentUser} onLogout={logout}>
       <div className="mb-4 flex flex-col md:flex-row justify-between items-end md:items-center gap-2">
          <div className="flex items-center space-x-2">
-            <div className={`flex items-center text-xs px-3 py-1.5 rounded-full transition-colors ${isSaving ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                {isSaving ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Cloud size={14} className="mr-1.5" />}
-                <span>{isSaving ? 'Synchronizing...' : 'Securely Connected'}</span>
+            <div className={`flex items-center text-xs px-3 py-1.5 rounded-full transition-colors ${
+              isOfflineMode 
+                ? 'bg-purple-100 text-purple-700'
+                : isSaving ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+            }`}>
+                {isOfflineMode ? (
+                  <>
+                    <WifiOff size={14} className="mr-1.5" />
+                    <span>Demo Mode (Offline)</span>
+                  </>
+                ) : isSaving ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin mr-1.5" />
+                    <span>Synchronizing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Cloud size={14} className="mr-1.5" />
+                    <span>Securely Connected</span>
+                  </>
+                )}
             </div>
          </div>
       </div>

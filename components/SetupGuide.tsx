@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
-import { Database, Copy, Check, Terminal, RefreshCw, ArrowRightLeft, ShieldAlert } from 'lucide-react';
+import { Database, Copy, Check, Terminal, RefreshCw, ArrowRightLeft, ShieldAlert, X } from 'lucide-react';
 
-export const SetupGuide: React.FC = () => {
+interface SetupGuideProps {
+  onClose?: () => void;
+}
+
+export const SetupGuide: React.FC<SetupGuideProps> = ({ onClose }) => {
   const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState<'migration' | 'reset' | 'admin_func'>('admin_func');
 
@@ -150,7 +154,16 @@ create policy "Public Access" on public.employee_assigned_systems for all using 
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-8 flex flex-col items-center justify-center">
+    <div className="min-h-screen bg-slate-900 text-white p-8 flex flex-col items-center justify-center relative">
+      {onClose && (
+        <button 
+          onClick={onClose}
+          className="absolute top-6 right-6 p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+        >
+          <X size={24} />
+        </button>
+      )}
+
       <div className="max-w-4xl w-full">
         <div className="flex items-center gap-3 mb-6">
           <Database className="text-blue-500 w-8 h-8" />
@@ -226,13 +239,24 @@ create policy "Public Access" on public.employee_assigned_systems for all using 
         </div>
 
         <div className="mt-8 text-center">
-          <p className="text-slate-400 text-sm mb-4">SQLの実行が完了したら、再読み込みしてください</p>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors"
-          >
-            ページを再読み込み
-          </button>
+          {onClose ? (
+             <button 
+             onClick={onClose} 
+             className="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-bold transition-colors"
+           >
+             ダッシュボードに戻る
+           </button>
+          ) : (
+            <>
+              <p className="text-slate-400 text-sm mb-4">SQLの実行が完了したら、再読み込みしてください</p>
+              <button 
+                onClick={() => window.location.reload()} 
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors"
+              >
+                ページを再読み込み
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

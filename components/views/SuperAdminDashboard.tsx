@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Tenant } from '../../types';
-import { Activity, Users, DollarSign, Database, LogOut, Search, X, Loader2, Trash2, KeyRound, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { Activity, Users, DollarSign, Database, LogOut, Search, X, Loader2, Trash2, KeyRound, AlertTriangle, ShieldAlert, Terminal } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { db } from '../../services/db';
 import { useNotification } from '../../contexts/NotificationContext';
+import { SetupGuide } from '../SetupGuide';
 
 interface SuperAdminDashboardProps {
   tenants: Tenant[];
@@ -16,8 +17,14 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ tenants, onLo
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [showSqlTool, setShowSqlTool] = useState(false);
 
   const { notify } = useNotification();
+
+  // If SQL Tool is active, show it instead of dashboard
+  if (showSqlTool) {
+    return <SetupGuide onClose={() => setShowSqlTool(false)} />;
+  }
 
   // Derived Stats
   const totalMRR = tenants.reduce((acc, t) => {
@@ -121,7 +128,14 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ tenants, onLo
                 </button>
               </div>
             </div>
-            <div className="flex items-center">
+            <div className="flex items-center space-x-4">
+               <button 
+                 onClick={() => setShowSqlTool(true)}
+                 className="flex items-center px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded text-sm text-blue-300 hover:text-blue-100 transition-colors border border-slate-700"
+               >
+                 <Terminal size={16} className="mr-2" />
+                 DB Setup / SQL
+               </button>
               <button onClick={onLogout} className="text-slate-300 hover:text-white flex items-center text-sm">
                 <LogOut size={16} className="mr-1" /> ログアウト
               </button>

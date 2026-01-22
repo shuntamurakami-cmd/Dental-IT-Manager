@@ -155,7 +155,7 @@ const AppContent: React.FC = () => {
       firstName: firstName || '管理者',
       lastName: lastName || '',
       clinicId: defaultClinicId,
-      role: '情報システム', // Admin Role
+      role: '事務', // Admin Role (changed from '情報システム' to match new list)
       employmentType: EmploymentType.FULL_TIME,
       email: email,
       joinDate: new Date().toISOString().split('T')[0],
@@ -277,7 +277,7 @@ const AppContent: React.FC = () => {
           firstName: firstName,
           lastName: lastName,
           clinicId: '', 
-          role: '歯科助手 (DA)', // Default role as string
+          role: '歯科助手', // Default role (changed from '歯科助手 (DA)' to match new list)
           employmentType: EmploymentType.FULL_TIME,
           email: email,
           joinDate: new Date().toISOString().split('T')[0],

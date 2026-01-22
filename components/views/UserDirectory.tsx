@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Search, UserPlus, X, Pencil, Download, Mail, Copy, Check, Settings, Plus, Trash2, Server, Eye, EyeOff, KeyRound } from 'lucide-react';
-import { Clinic, Employee, SystemTool, StaffRole, EmploymentType, GovernanceConfig } from '../../types';
+import { Search, UserPlus, X, Pencil, Download, Mail, Copy, Check, Server, Eye, EyeOff, KeyRound, Trash2 } from 'lucide-react';
+import { Clinic, Employee, SystemTool, EmploymentType, GovernanceConfig } from '../../types';
 import { useNotification } from '../../contexts/NotificationContext';
 import { DEFAULT_ROLES } from '../../constants';
 
@@ -20,16 +20,13 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ tenantId, clinics, system
   const [searchTerm, setSearchTerm] = React.useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
-  const [isRoleManagerOpen, setIsRoleManagerOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   
   const { notify } = useNotification();
   
-  // Use custom roles from governance, or fallback to defaults
-  const availableRoles = governance.customRoles && governance.customRoles.length > 0 
-    ? governance.customRoles 
-    : DEFAULT_ROLES;
+  // Use fixed roles from constants
+  const availableRoles = DEFAULT_ROLES;
 
   const [formData, setFormData] = useState({
     lastName: '',
@@ -333,9 +330,6 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ tenantId, clinics, system
                   <div>
                     <div className="flex justify-between items-center mb-1">
                       <label className="block text-sm font-medium text-slate-700">職種</label>
-                      <button type="button" onClick={() => setIsRoleManagerOpen(true)} className="text-xs text-blue-600 hover:text-blue-800 flex items-center">
-                        <Settings size={12} className="mr-1" /> 編集
-                      </button>
                     </div>
                     <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 hover:bg-slate-50 transition-colors cursor-pointer focus:ring-2 focus:ring-blue-500">
                       {availableRoles.map(role => <option key={role} value={role} className="text-slate-900 bg-white">{role}</option>)}
@@ -387,80 +381,9 @@ const UserDirectory: React.FC<UserDirectoryProps> = ({ tenantId, clinics, system
           </div>
         </div>
       )}
-
-      {/* Role Manager Modal */}
-      {isRoleManagerOpen && (
-        <RoleManagerModal 
-           roles={availableRoles} 
-           onClose={() => setIsRoleManagerOpen(false)}
-           onSave={(newRoles) => onUpdateGovernance({ ...governance, customRoles: newRoles })}
-        />
-      )}
     </div>
   );
 };
-
-// Mini Modal for Role Management
-const RoleManagerModal: React.FC<{ roles: string[], onClose: () => void, onSave: (roles: string[]) => void }> = ({ roles, onClose, onSave }) => {
-  const [currentRoles, setCurrentRoles] = useState(roles);
-  const [newRole, setNewRole] = useState('');
-
-  const handleAdd = () => {
-    if (newRole && !currentRoles.includes(newRole)) {
-      setCurrentRoles([...currentRoles, newRole]);
-      setNewRole('');
-    }
-  };
-
-  const handleDelete = (role: string) => {
-    if (window.confirm(`${role} を削除しますか？`)) {
-      setCurrentRoles(currentRoles.filter(r => r !== role));
-    }
-  };
-
-  const handleSave = () => {
-    onSave(currentRoles);
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/20 p-4">
-      <div className="bg-white rounded-xl max-w-sm w-full p-4 shadow-xl border border-slate-200">
-         <h4 className="text-md font-bold text-slate-900 mb-3">職種リストの編集</h4>
-         <div className="flex gap-2 mb-4">
-           <input 
-             type="text" 
-             value={newRole} 
-             onChange={e => setNewRole(e.target.value)} 
-             placeholder="新しい職種名" 
-             className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-           />
-           <button onClick={handleAdd} className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700">
-             <Plus size={18} />
-           </button>
-         </div>
-         <div className="max-h-48 overflow-y-auto space-y-2 mb-4">
-           {currentRoles.map(role => (
-             <div key={role} className="flex justify-between items-center bg-slate-50 px-3 py-2 rounded border border-slate-100 text-sm">
-               <span className="text-slate-900">{role}</span>
-               <button 
-                 type="button"
-                 onClick={() => handleDelete(role)} 
-                 className="text-slate-400 hover:text-red-500"
-               >
-                 <Trash2 size={14} className="pointer-events-none" />
-               </button>
-             </div>
-           ))}
-         </div>
-         <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="px-3 py-1.5 text-slate-500 text-sm hover:bg-slate-50 rounded">キャンセル</button>
-            <button onClick={handleSave} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">保存する</button>
-         </div>
-      </div>
-    </div>
-  );
-}
 
 // Simple Invite Modal Component
 const InviteModal: React.FC<{ onClose: () => void; tenantId?: string }> = ({ onClose, tenantId }) => {

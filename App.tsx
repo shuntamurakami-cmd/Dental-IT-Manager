@@ -10,7 +10,7 @@ import Auth from './components/Auth';
 import SuperAdminDashboard from './components/views/SuperAdminDashboard';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { SetupGuide } from './components/SetupGuide';
-import { Loader2, AlertCircle, Cloud, ShieldAlert } from 'lucide-react';
+import { Loader2, AlertCircle, Cloud, ShieldAlert, RefreshCw } from 'lucide-react';
 import { Tenant, User, UserRole, Clinic, SystemTool, Employee, GovernanceConfig, ClinicType, StaffRole, EmploymentType } from './types';
 import { db } from './services/db';
 import { supabase } from './services/supabase';
@@ -106,6 +106,7 @@ const AppContent: React.FC = () => {
       }
 
       // 2. If still pending, we cannot load data.
+      // BUT: If the user is logged in, but has no tenant (Orphan), we return empty to show the "Setup Needed" screen
       if (effectiveTenantId === 'pending' && currentUser.role !== UserRole.SUPER_ADMIN) {
         setTenants([]);
         setIsLoading(false);
@@ -125,6 +126,75 @@ const AppContent: React.FC = () => {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Helper to create initial data (Moved out to be reusable for Ghost User recovery)
+  const initializeTenantData = async (
+    newTenantId: string, 
+    email: string, 
+    company: string, 
+    firstName: string, 
+    lastName: string,
+    isGuestDemo: boolean
+  ) => {
+    const defaultClinicId = `c_${Date.now()}_hq`;
+    const adminEmployeeId = `e_${Date.now()}_admin`;
+
+    const defaultClinic: Clinic = {
+      id: defaultClinicId,
+      name: isGuestDemo ? 'ホワイトデンタルクリニック 本院' : `${company} 本院`,
+      type: ClinicType.HQ,
+      address: isGuestDemo ? '東京都港区六本木1-1-1' : '',
+      phone: isGuestDemo ? '03-1234-5678' : '',
+      chairs: isGuestDemo ? 8 : 0
+    };
+
+    const adminEmployee: Employee = {
+      id: adminEmployeeId,
+      firstName: firstName || '管理者',
+      lastName: lastName || '',
+      clinicId: defaultClinicId,
+      role: '情報システム', // Admin Role
+      employmentType: EmploymentType.FULL_TIME,
+      email: email,
+      joinDate: new Date().toISOString().split('T')[0],
+      assignedSystems: [],
+      status: 'Active',
+      accountType: 'Google Workspace'
+    };
+
+    await db.upsertTenant(newTenantId, {
+      id: newTenantId,
+      name: isGuestDemo ? 'ホワイトデンタルグループ (Demo)' : company,
+      plan: 'Pro',
+      status: 'Active',
+      ownerEmail: email,
+      governance: GOVERNANCE_RULES
+    });
+    
+    await db.upsertClinic(newTenantId, defaultClinic);
+    await db.upsertEmployee(newTenantId, adminEmployee);
+
+    if (isGuestDemo) {
+       for (const c of CLINICS) {
+         if (c.id === 'c1') continue; 
+         await db.upsertClinic(newTenantId, { ...c, id: `${newTenantId}_${c.id}` });
+       }
+       for (const s of SYSTEMS) {
+         await db.upsertSystem(newTenantId, { ...s, id: `${newTenantId}_${s.id}` });
+       }
+       for (const e of EMPLOYEES) {
+         if (e.id === 'e1') continue;
+         const mappedClinicId = e.clinicId === 'c1' ? defaultClinicId : `${newTenantId}_${e.clinicId}`;
+         const mappedSystems = e.assignedSystems.map(sysId => `${newTenantId}_${sysId}`);
+         await db.upsertEmployee(newTenantId, { 
+           ...e, 
+           id: `${newTenantId}_${e.id}`, 
+           clinicId: mappedClinicId,
+           assignedSystems: mappedSystems
+         });
+       }
     }
   };
   
@@ -161,7 +231,32 @@ const AppContent: React.FC = () => {
         }
       });
 
+      // Handle "User already registered" case (Ghost User Recovery)
       if (authError) {
+        if (authError.message.includes('User already registered') || authError.message.includes('unique constraint')) {
+          // Try to login to verify ownership
+          const { error: loginError } = await supabase.auth.signInWithPassword({ email, password: pass });
+          if (!loginError) {
+             // Check if tenant exists
+             const existingTenantId = await db.getTenantIdByEmail(email);
+             if (!existingTenantId && !inviteTenantId) {
+                // ORPHAN DETECTED: Auth exists, but DB data is gone. Re-initialize.
+                const newTenantId = `tenant_${Date.now()}`;
+                await initializeTenantData(newTenantId, email, company, firstName, lastName, isGuestDemo);
+                notify('success', 'アカウントデータを再構築しました');
+                
+                // Refresh state
+                setCurrentUser(prev => prev ? { ...prev, tenantId: newTenantId } : null);
+                const data = await db.getTenants(newTenantId);
+                setTenants(data);
+                setIsSaving(false);
+                return { success: true };
+             } else {
+               setIsSaving(false);
+               return { success: false, message: 'このメールアドレスは既に登録されています。ログインしてください。' };
+             }
+          }
+        }
         setIsSaving(false);
         return { success: false, message: authError.message };
       }
@@ -193,73 +288,16 @@ const AppContent: React.FC = () => {
         await db.upsertEmployee(inviteTenantId, newEmployee);
         notify('success', '組織に参加しました');
       } else {
-        const defaultClinicId = `c_${Date.now()}_hq`;
-        const adminEmployeeId = `e_${Date.now()}_admin`;
-
-        const defaultClinic: Clinic = {
-          id: defaultClinicId,
-          name: isGuestDemo ? 'ホワイトデンタルクリニック 本院' : `${company} 本院`,
-          type: ClinicType.HQ,
-          address: isGuestDemo ? '東京都港区六本木1-1-1' : '',
-          phone: isGuestDemo ? '03-1234-5678' : '',
-          chairs: isGuestDemo ? 8 : 0
-        };
-
-        const adminEmployee: Employee = {
-          id: adminEmployeeId,
-          firstName: firstName || '管理者',
-          lastName: lastName || '',
-          clinicId: defaultClinicId,
-          role: '情報システム', // Admin Role
-          employmentType: EmploymentType.FULL_TIME,
-          email: email,
-          joinDate: new Date().toISOString().split('T')[0],
-          assignedSystems: [],
-          status: 'Active',
-          accountType: 'Google Workspace'
-        };
-
-        await db.upsertTenant(newTenantId, {
-          id: newTenantId,
-          name: isGuestDemo ? 'ホワイトデンタルグループ (Demo)' : company,
-          plan: 'Pro',
-          status: 'Active',
-          ownerEmail: email,
-          governance: GOVERNANCE_RULES
-        });
+        await initializeTenantData(newTenantId, email, company, firstName, lastName, isGuestDemo);
         
-        await db.upsertClinic(newTenantId, defaultClinic);
-        await db.upsertEmployee(newTenantId, adminEmployee);
-
-        if (isGuestDemo) {
-           for (const c of CLINICS) {
-             if (c.id === 'c1') continue; 
-             await db.upsertClinic(newTenantId, { ...c, id: `${newTenantId}_${c.id}` });
-           }
-           for (const s of SYSTEMS) {
-             await db.upsertSystem(newTenantId, { ...s, id: `${newTenantId}_${s.id}` });
-           }
-           for (const e of EMPLOYEES) {
-             if (e.id === 'e1') continue;
-             const mappedClinicId = e.clinicId === 'c1' ? defaultClinicId : `${newTenantId}_${e.clinicId}`;
-             const mappedSystems = e.assignedSystems.map(sysId => `${newTenantId}_${sysId}`);
-             await db.upsertEmployee(newTenantId, { 
-               ...e, 
-               id: `${newTenantId}_${e.id}`, 
-               clinicId: mappedClinicId,
-               assignedSystems: mappedSystems
-             });
-           }
-           notify('success', 'デモ環境を構築しました');
-        } else {
-           notify('success', 'アカウントと組織を作成しました');
-        }
+        if (isGuestDemo) notify('success', 'デモ環境を構築しました');
+        else notify('success', 'アカウントと組織を作成しました');
       }
       
-      // Update local state immediately for smoother transition
+      // Update local state immediately
       setCurrentUser(prev => prev ? { ...prev, tenantId: newTenantId } : null);
       
-      // Load data for the specific new tenant
+      // Load data
       const data = await db.getTenants(newTenantId);
       setTenants(data);
       
@@ -273,6 +311,35 @@ const AppContent: React.FC = () => {
          return { success: false, message: 'データベースのテーブルが見つかりません。セットアップが必要です。' };
       }
       return { success: false, message: 'アカウント作成後のデータ処理に失敗しました。' };
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Manual trigger for users who are logged in but have no data (Orphan recovery UI)
+  const handleRecoverAccount = async () => {
+    if (!currentUser) return;
+    setIsSaving(true);
+    try {
+      const newTenantId = `tenant_${Date.now()}`;
+      // Use generic names as we might have lost the original inputs
+      const [lastName, firstName] = (currentUser.name || 'Admin User').split(' ');
+      
+      await initializeTenantData(
+        newTenantId, 
+        currentUser.email, 
+        'マイクリニック (復旧)', 
+        firstName || 'User', 
+        lastName || 'Admin', 
+        false
+      );
+      
+      notify('success', '組織データを再作成しました');
+      setCurrentUser(prev => prev ? { ...prev, tenantId: newTenantId } : null);
+      const data = await db.getTenants(newTenantId);
+      setTenants(data);
+    } catch (err: any) {
+      notify('error', `復旧に失敗しました: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -377,11 +444,30 @@ const AppContent: React.FC = () => {
         );
     }
     return (
-      <div className="p-20 text-center flex flex-col items-center justify-center min-h-screen bg-slate-50">
-        <AlertCircle className="text-amber-500 mb-4" size={48} />
-        <h2 className="text-xl font-bold mb-2">テナント設定エラー</h2>
-        <p className="text-slate-500 mb-6">アカウントに関連付けられたテナント情報が見つかりません。</p>
-        <button onClick={logout} className="px-4 py-2 bg-slate-900 text-white rounded-lg">ログアウトして戻る</button>
+      <div className="p-8 text-center flex flex-col items-center justify-center min-h-screen bg-slate-50">
+        <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-slate-100">
+          <AlertCircle className="text-amber-500 mb-4 mx-auto" size={48} />
+          <h2 className="text-xl font-bold mb-2 text-slate-900">組織データが見つかりません</h2>
+          <p className="text-slate-500 mb-6 text-sm leading-relaxed">
+            アカウントは存在しますが、関連付けられた組織データが削除されたか、まだ作成されていません。
+          </p>
+          
+          <div className="space-y-3">
+             <button 
+               onClick={handleRecoverAccount} 
+               className="w-full flex items-center justify-center px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-bold transition-all shadow-lg shadow-blue-200"
+             >
+               <RefreshCw size={18} className="mr-2" />
+               組織データを新規作成する
+             </button>
+             <button 
+               onClick={logout} 
+               className="w-full px-4 py-2.5 text-slate-500 hover:text-slate-700 font-medium"
+             >
+               一度ログアウトする
+             </button>
+          </div>
+        </div>
       </div>
     );
   }

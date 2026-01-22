@@ -166,6 +166,12 @@ export const db = {
     if (error) throw error;
   },
 
+  // SUPER ADMIN FUNCTION: Delete Auth User via RPC
+  deleteAuthUser: async (email: string) => {
+     const { error } = await supabase.rpc('admin_delete_user', { target_email: email });
+     if (error) throw error;
+  },
+
   deleteTenant: async (tenantId: string) => {
     // Manually delete related data first to ensure no foreign key violations
     // 1. Get all employees

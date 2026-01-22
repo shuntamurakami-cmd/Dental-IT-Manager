@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Tenant } from '../../types';
-import { Activity, Users, DollarSign, Database, LogOut, Search, X, Loader2, Trash2, KeyRound } from 'lucide-react';
+import { Activity, Users, DollarSign, Database, LogOut, Search, X, Loader2, Trash2, KeyRound, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { db } from '../../services/db';
 import { useNotification } from '../../contexts/NotificationContext';
@@ -55,15 +55,28 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ tenants, onLo
 
   const handleDeleteTenant = async (e: React.MouseEvent, tenant: Tenant) => {
     e.stopPropagation();
-    const confirmMsg = `警告: ${tenant.name} を削除しようとしています。\n\n所属する医院、ユーザー、システム台帳など全てのデータが完全に削除され、復元できません。\n\n本当に削除しますか？`;
+    
+    // Completely destructive action warning
+    const confirmMsg = `【危険】${tenant.name} を完全に削除しますか？\n\n・データベース上の全データが消去されます\n・認証ユーザー(${tenant.ownerEmail})もAuthから完全に削除されます\n・このユーザーは次回、新規登録として扱われます\n\n本当に実行しますか？`;
+    
     if (!window.confirm(confirmMsg)) return;
     
     setProcessingId(tenant.id);
     try {
+      // 1. Delete App Data (DB)
       await db.deleteTenant(tenant.id);
-      notify('success', 'テナントを削除しました');
+      
+      // 2. Delete Auth User (Supabase Auth) via RPC
+      // Note: This only works if the admin_delete_user function is set up in SQL
+      try {
+        await db.deleteAuthUser(tenant.ownerEmail);
+        notify('success', 'データと認証ユーザーを完全に削除しました');
+      } catch (authErr: any) {
+        console.error('Auth deletion failed:', authErr);
+        notify('info', 'データは削除されましたが、認証ユーザーの削除に失敗しました（SQL関数の設定を確認してください）');
+      }
+
       if (onRefresh) await onRefresh();
-      // If selected, close modal
       if (selectedTenant?.id === tenant.id) setSelectedTenant(null);
     } catch (err: any) {
       console.error(err);
@@ -280,6 +293,18 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ tenants, onLo
                  <button onClick={() => setSelectedTenant(null)} className="text-slate-400 hover:text-slate-600">
                    <X size={24} />
                  </button>
+               </div>
+
+               <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6 flex items-start">
+                  <ShieldAlert className="text-green-600 mr-3 mt-0.5" size={20} />
+                  <div>
+                    <h4 className="font-bold text-green-800 text-sm">完全削除が可能になりました</h4>
+                    <p className="text-sm text-green-700 mt-1">
+                      SQLエディタで「管理者用関数」を実行済みであれば、
+                      ここからの削除操作で<b>認証ユーザー(Auth)も同時に削除</b>されます。<br/>
+                      これにより、同じメールアドレスでの再登録が可能になります。
+                    </p>
+                  </div>
                </div>
 
                <div className="grid grid-cols-3 gap-4 mb-6">

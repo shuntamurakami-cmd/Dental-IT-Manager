@@ -1,9 +1,35 @@
 import React, { useState } from 'react';
-import { Database, Copy, Check, Terminal, RefreshCw, ArrowRightLeft } from 'lucide-react';
+import { Database, Copy, Check, Terminal, RefreshCw, ArrowRightLeft, ShieldAlert } from 'lucide-react';
 
 export const SetupGuide: React.FC = () => {
   const [copied, setCopied] = useState(false);
-  const [mode, setMode] = useState<'migration' | 'reset'>('migration');
+  const [mode, setMode] = useState<'migration' | 'reset' | 'admin_func'>('admin_func');
+
+  const adminFuncSql = `
+-- スーパー管理者用のユーザー完全削除関数
+-- 注意: この関数は admin@saas-provider.com からのリクエストのみを受け付けます
+
+create or replace function public.admin_delete_user(target_email text)
+returns void
+language plpgsql
+security definer -- 特権モードで実行
+as $$
+declare
+  requesting_user_email text;
+begin
+  -- 実行者のメールアドレスを取得
+  select auth.jwt() ->> 'email' into requesting_user_email;
+
+  -- 権限チェック (admin@saas-provider.com 以外は実行不可)
+  if requesting_user_email != 'admin@saas-provider.com' then
+    raise exception 'Forbidden: Only Super Admin can execute this function.';
+  end if;
+
+  -- auth.users から削除 (これによりログインできなくなり、同じメアドで再登録可能になる)
+  delete from auth.users where email = target_email;
+end;
+$$;
+`.trim();
 
   const migrationSqlCode = `
 -- 既存のテーブルにカラムを追加（データは保持されます）
@@ -112,7 +138,10 @@ alter table public.employee_assigned_systems enable row level security;
 create policy "Public Access" on public.employee_assigned_systems for all using (true);
 `.trim();
 
-  const activeCode = mode === 'migration' ? migrationSqlCode : resetSqlCode;
+  let activeCode = '';
+  if (mode === 'migration') activeCode = migrationSqlCode;
+  else if (mode === 'reset') activeCode = resetSqlCode;
+  else activeCode = adminFuncSql;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(activeCode);
@@ -125,36 +154,47 @@ create policy "Public Access" on public.employee_assigned_systems for all using 
       <div className="max-w-4xl w-full">
         <div className="flex items-center gap-3 mb-6">
           <Database className="text-blue-500 w-8 h-8" />
-          <h1 className="text-2xl font-bold">データベースの更新が必要です</h1>
+          <h1 className="text-2xl font-bold">データベース更新 / 管理機能追加</h1>
         </div>
         
         <p className="text-slate-300 mb-8 text-lg">
-          新しい機能（アカウント種別・パスワード管理）を利用するには、Supabase側でテーブル定義の更新が必要です。<br/>
-          以下のSQLをSupabaseの <span className="font-mono bg-slate-800 px-2 py-1 rounded">SQL Editor</span> で実行してください。
+          ユーザーを「完全に削除」するには、SupabaseのAuthテーブルへのアクセス権限を持つ関数を作成する必要があります。<br/>
+          <strong className="text-white">「管理者用関数」</strong>タブを選択し、SQLを実行してください。
         </p>
 
-        <div className="flex space-x-4 mb-4">
+        <div className="flex space-x-2 mb-4 bg-slate-800 p-1 rounded-lg inline-flex">
+          <button 
+            onClick={() => setMode('admin_func')}
+            className={`flex items-center px-4 py-2 rounded-md font-bold transition-all ${
+              mode === 'admin_func' 
+                ? 'bg-purple-600 text-white shadow-lg' 
+                : 'text-slate-400 hover:bg-slate-700'
+            }`}
+          >
+            <ShieldAlert size={16} className="mr-2" />
+            管理者用関数 (必須)
+          </button>
           <button 
             onClick={() => setMode('migration')}
-            className={`flex items-center px-4 py-2 rounded-lg font-bold transition-all ${
+            className={`flex items-center px-4 py-2 rounded-md font-bold transition-all ${
               mode === 'migration' 
-                ? 'bg-blue-600 text-white ring-2 ring-blue-400 ring-offset-2 ring-offset-slate-900' 
-                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                ? 'bg-blue-600 text-white shadow-lg' 
+                : 'text-slate-400 hover:bg-slate-700'
             }`}
           >
             <ArrowRightLeft size={16} className="mr-2" />
-            データ保持更新 (推奨)
+            マイグレーション
           </button>
           <button 
             onClick={() => setMode('reset')}
-            className={`flex items-center px-4 py-2 rounded-lg font-bold transition-all ${
+            className={`flex items-center px-4 py-2 rounded-md font-bold transition-all ${
               mode === 'reset' 
-                ? 'bg-red-600 text-white ring-2 ring-red-400 ring-offset-2 ring-offset-slate-900' 
-                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                ? 'bg-red-600 text-white shadow-lg' 
+                : 'text-slate-400 hover:bg-slate-700'
             }`}
           >
             <RefreshCw size={16} className="mr-2" />
-            完全リセット
+            リセット
           </button>
         </div>
 
@@ -162,7 +202,10 @@ create policy "Public Access" on public.employee_assigned_systems for all using 
           <div className="flex justify-between items-center px-4 py-3 bg-slate-900 border-b border-slate-800">
             <div className="flex items-center gap-2 text-sm text-slate-400">
               <Terminal size={16} />
-              <span>{mode === 'migration' ? 'migration_v1.sql' : 'setup_full.sql'}</span>
+              <span>
+                {mode === 'admin_func' ? 'create_admin_function.sql' : 
+                 mode === 'migration' ? 'migration_v1.sql' : 'setup_full.sql'}
+              </span>
             </div>
             <button 
               onClick={handleCopy}
@@ -179,11 +222,6 @@ create policy "Public Access" on public.employee_assigned_systems for all using 
             <pre className="p-4 overflow-x-auto text-sm font-mono leading-relaxed text-blue-300 max-h-96">
               <code>{activeCode}</code>
             </pre>
-            {mode === 'reset' && (
-              <div className="absolute top-4 right-4 bg-red-500/10 border border-red-500/50 text-red-500 px-3 py-1 rounded text-xs font-bold">
-                ⚠️ 全データが削除されます
-              </div>
-            )}
           </div>
         </div>
 
